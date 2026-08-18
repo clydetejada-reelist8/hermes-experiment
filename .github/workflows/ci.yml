@@ -72,7 +72,7 @@ jobs:
         run: psql "$DATABASE_URL" -c 'CREATE EXTENSION IF NOT EXISTS vector;'
 
       - name: Push database schema
-        run: pnpm --filter @hermes/db exec prisma db push --force-reset
+        run: pnpm --filter @hermes/db exec prisma db push --accept-data-loss
 
       - name: Start MinIO
         run: |
