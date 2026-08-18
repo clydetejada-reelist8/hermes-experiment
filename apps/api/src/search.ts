@@ -49,11 +49,14 @@ export async function searchVisibleKnowledge(input: SearchInput): Promise<Search
     }),
   ]);
 
-  const teamIds: string[] = teamMemberships.map((membership: { teamId: string }) => membership.teamId);
-  const projectIds: string[] = projectMemberships.map((membership: { projectId: string }) => membership.projectId);
+  const teamIds: string[] = teamMemberships.map(
+    (membership: { teamId: string }) => membership.teamId,
+  );
+  const projectIds: string[] = projectMemberships.map(
+    (membership: { projectId: string }) => membership.projectId,
+  );
   const visibleTeams = teamIds.length > 0 ? Prisma.join(teamIds) : Prisma.sql`'__none__'`;
-  const visibleProjects =
-    projectIds.length > 0 ? Prisma.join(projectIds) : Prisma.sql`'__none__'`;
+  const visibleProjects = projectIds.length > 0 ? Prisma.join(projectIds) : Prisma.sql`'__none__'`;
   const limit = Math.max(1, Math.min(input.limit, 20));
 
   const rows = await db.$queryRaw<SearchRow[]>`
