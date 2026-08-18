@@ -3,6 +3,10 @@ import Fastify, { type FastifyInstance } from "fastify";
 import {
   CalendarActionExecutor,
   GmailActionExecutor,
+  cancelReminder,
+  completeReminder,
+  createReminder,
+  getRemindersForEmployee,
   getAction as getStoredAction,
   parseActionProposal,
   transitionAction,
@@ -143,9 +147,30 @@ export interface GoogleOAuthCallbackInput {
   state: string;
 }
 
+export interface ReminderRequestInput {
+  employeeId: string;
+  reminderId?: string;
+  text?: string;
+  dueAt?: string;
+  timezone?: string;
+}
+
+export interface ReminderRequestResult {
+  id: string;
+  employeeId: string;
+  status: string;
+  [key: string]: unknown;
+}
+
+export interface ReadinessResult {
+  ready: boolean;
+  dependencies: Record<string, string>;
+}
+
 export interface ServerOptions {
   internalServiceToken: string;
   logger?: boolean;
+  readinessCheck?: () => Promise<ReadinessResult>;
   resolveDiscordIdentity?: (discordUserId: string) => Promise<ResolvedIdentity>;
   searchKnowledge?: (input: SearchInput) => Promise<SearchEvidence[]>;
   createUpload?: (input: CreateUploadInput) => Promise<CreateUploadResult>;
@@ -159,6 +184,10 @@ export interface ServerOptions {
   executeAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
   getAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
   cancelAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
+  listReminders?: (input: ReminderRequestInput) => Promise<ReminderRequestResult[]>;
+  createReminder?: (input: ReminderRequestInput) => Promise<ReminderRequestResult>;
+  completeReminder?: (input: ReminderRequestInput) => Promise<ReminderRequestResult>;
+  cancelReminder?: (input: ReminderRequestInput) => Promise<ReminderRequestResult>;
   listMemory?: (input: MemoryRequestInput) => Promise<MemoryRequestResult[]>;
   createMemory?: (input: MemoryRequestInput) => Promise<MemoryRequestResult>;
   updateMemory?: (input: MemoryRequestInput) => Promise<MemoryRequestResult>;
@@ -180,6 +209,20 @@ export interface ServerOptions {
   uploadMaxBytes?: number;
 }
 
+async function defaultReadinessCheck(): Promise<ReadinessResult> {
+  const dependencies: Record<string, string> = { database: "unknown", worker: "not_configured" };
+  try {
+    await db.$queryRaw`SELECT 1`;
+    dependencies.database = "ok";
+  } catch {
+    dependencies.database = "unavailable";
+  }
+  return {
+    ready: dependencies.database === "ok" && dependencies.worker === "ok",
+    dependencies,
+  };
+}
+
 function defaultResolveDiscordIdentity(discordUserId: string): Promise<ResolvedIdentity> {
   return resolveDiscordEmployee(discordUserId).then((employee: Employee) => ({
     id: employee.id,
@@ -198,6 +241,7 @@ function defaultResolveDiscordIdentity(discordUserId: string): Promise<ResolvedI
  */
 export async function buildServer(opts: ServerOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? false });
+  const readinessCheck = opts.readinessCheck ?? defaultReadinessCheck;
   const resolveIdentity = opts.resolveDiscordIdentity ?? defaultResolveDiscordIdentity;
   const searchKnowledge = opts.searchKnowledge ?? searchVisibleKnowledge;
   const createUpload = opts.createUpload ?? defaultCreateUpload;
@@ -211,6 +255,10 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   const executeAction = opts.executeAction ?? defaultExecuteAction;
   const getAction = opts.getAction ?? defaultGetAction;
   const cancelAction = opts.cancelAction ?? defaultCancelAction;
+  const listReminders = opts.listReminders ?? defaultListReminders;
+  const createReminderHandler = opts.createReminder ?? defaultCreateReminder;
+  const completeReminderHandler = opts.completeReminder ?? defaultCompleteReminder;
+  const cancelReminderHandler = opts.cancelReminder ?? defaultCancelReminder;
   const listMemory = opts.listMemory ?? defaultListMemory;
   const createMemory = opts.createMemory ?? defaultCreateMemory;
   const updateMemory = opts.updateMemory ?? defaultUpdateMemory;
@@ -238,6 +286,10 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   });
 
   app.get("/health", async () => ({ status: "ok" }));
+  app.get("/health/ready", async (_request, reply) => {
+    const result = await readinessCheck();
+    return reply.code(result.ready ? 200 : 503).send(result);
+  });
   app.get("/v1/health", async () => ({ status: "ok" }));
   app.get("/v1/echo", async () => ({ status: "ok", echo: true }));
 
@@ -594,6 +646,47 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       }),
   );
 
+  app.get<{ Querystring: { discordUserId?: string } }>("/v1/reminders", async (request, reply) => {
+    const discordUserId = request.query.discordUserId?.trim();
+    if (!discordUserId) return reply.code(400).send({ error: "invalid_reminder_request" });
+    try {
+      const identity = await resolveIdentity(discordUserId);
+      return { employeeId: identity.id, reminders: await listReminders({ employeeId: identity.id }) };
+    } catch (error) {
+      return handleReminderError(request, reply, error);
+    }
+  });
+
+  app.post<{
+    Body: { discordUserId?: string; text?: string; dueAt?: string; timezone?: string; conversationId?: string };
+  }>("/v1/reminders", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.discordUserId?.trim() || !body.text?.trim() || !body.dueAt || !body.timezone) {
+      return reply.code(400).send({ error: "invalid_reminder_request" });
+    }
+    try {
+      const identity = await resolveIdentity(body.discordUserId.trim());
+      return reply.code(201).send(await createReminderHandler({
+        employeeId: identity.id,
+        text: body.text,
+        dueAt: body.dueAt,
+        timezone: body.timezone,
+      }));
+    } catch (error) {
+      return handleReminderError(request, reply, error);
+    }
+  });
+
+  app.post<{ Params: { reminderId: string }; Body: { discordUserId?: string } }>(
+    "/v1/reminders/:reminderId/complete",
+    async (request, reply) => runReminderMutation(request, reply, resolveIdentity, completeReminderHandler),
+  );
+
+  app.post<{ Params: { reminderId: string }; Body: { discordUserId?: string } }>(
+    "/v1/reminders/:reminderId/cancel",
+    async (request, reply) => runReminderMutation(request, reply, resolveIdentity, cancelReminderHandler),
+  );
+
   app.get<{ Querystring: { discordUserId?: string } }>("/v1/memory", async (request, reply) => {
     const discordUserId = request.query.discordUserId?.trim();
     if (!discordUserId) return reply.code(400).send({ error: "invalid_memory_request" });
@@ -668,6 +761,82 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   );
 
   return app;
+}
+
+async function defaultListReminders(input: ReminderRequestInput): Promise<ReminderRequestResult[]> {
+  return (await getRemindersForEmployee(input.employeeId)).map(toReminderResult);
+}
+
+async function defaultCreateReminder(input: ReminderRequestInput): Promise<ReminderRequestResult> {
+  if (!input.text || !input.dueAt || !input.timezone) throw new Error("reminder_create_invalid");
+  return toReminderResult(await createReminder({
+    employeeId: input.employeeId,
+    text: input.text,
+    dueAt: new Date(input.dueAt),
+    timezone: input.timezone,
+  }));
+}
+
+async function requireOwnedReminder(employeeId: string, reminderId: string): Promise<void> {
+  const reminders = await getRemindersForEmployee(employeeId);
+  if (!reminders.some((reminder) => reminder.id === reminderId)) throw new Error("reminder_not_found");
+}
+
+async function defaultCompleteReminder(input: ReminderRequestInput): Promise<ReminderRequestResult> {
+  if (!input.reminderId) throw new Error("reminder_complete_invalid");
+  await requireOwnedReminder(input.employeeId, input.reminderId);
+  return toReminderResult(await completeReminder(input.reminderId));
+}
+
+async function defaultCancelReminder(input: ReminderRequestInput): Promise<ReminderRequestResult> {
+  if (!input.reminderId) throw new Error("reminder_cancel_invalid");
+  await requireOwnedReminder(input.employeeId, input.reminderId);
+  return toReminderResult(await cancelReminder(input.reminderId));
+}
+
+function toReminderResult(reminder: {
+  id: string;
+  employeeId: string;
+  text: string;
+  dueAt: Date;
+  timezone: string;
+  status: string;
+}): ReminderRequestResult {
+  return {
+    id: reminder.id,
+    employeeId: reminder.employeeId,
+    text: reminder.text,
+    dueAt: reminder.dueAt,
+    timezone: reminder.timezone,
+    status: reminder.status,
+  };
+}
+
+function handleReminderError(
+  request: { log: { error(error: unknown): void } },
+  reply: { code(statusCode: number): { send(payload: unknown): unknown } },
+  error: unknown,
+): unknown {
+  if (error instanceof IdentityDeniedError) return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+  if (error instanceof Error && error.message.endsWith("_not_found")) return reply.code(404).send({ error: error.message });
+  request.log.error(error);
+  return reply.code(500).send({ error: "reminder_request_failed" });
+}
+
+async function runReminderMutation(
+  request: { body?: { discordUserId?: string }; params: { reminderId: string }; log: { error(error: unknown): void } },
+  reply: { code(statusCode: number): { send(payload: unknown): unknown }; send(payload: unknown): unknown },
+  resolveIdentity: (discordUserId: string) => Promise<ResolvedIdentity>,
+  mutation: (input: ReminderRequestInput) => Promise<ReminderRequestResult>,
+): Promise<unknown> {
+  const discordUserId = request.body?.discordUserId?.trim();
+  if (!discordUserId || !request.params.reminderId) return reply.code(400).send({ error: "invalid_reminder_request" });
+  try {
+    const identity = await resolveIdentity(discordUserId);
+    return reply.send(await mutation({ employeeId: identity.id, reminderId: request.params.reminderId }));
+  } catch (error) {
+    return handleReminderError(request, reply, error);
+  }
 }
 
 async function defaultListMemory(input: MemoryRequestInput): Promise<MemoryRequestResult[]> {
