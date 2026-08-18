@@ -1,4 +1,14 @@
+import { createHash } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
+import {
+  CalendarActionExecutor,
+  GmailActionExecutor,
+  getAction as getStoredAction,
+  parseActionProposal,
+  transitionAction,
+  validateProposal,
+} from "@hermes/actions";
+import { db } from "@hermes/db";
 import { classifySubmission, createSubmission, ingestImportedFile } from "@hermes/artifacts";
 import type {
   ArtifactScope,
@@ -10,6 +20,9 @@ import type {
 import { resolveDiscordEmployee, type Employee } from "@hermes/identity";
 import { IdentityDeniedError } from "@hermes/identity";
 import {
+  GoogleCalendarProvider,
+  GoogleGmailProvider,
+  GoogleOAuthAccessTokenSource,
   buildGoogleAuthorizationUrl,
   createOAuthState,
   consumeOAuthState,
@@ -193,11 +206,11 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   const completeGoogleOAuth = opts.completeGoogleOAuth ?? defaultCompleteGoogleOAuth;
   const getGoogleConnection = opts.getGoogleConnection ?? defaultGetGoogleConnection;
   const revokeGoogleConnection = opts.revokeGoogleConnection ?? defaultRevokeGoogleConnection;
-  const prepareAction = opts.prepareAction ?? missingActionHandler("prepare");
-  const confirmAction = opts.confirmAction ?? missingActionHandler("confirm");
-  const executeAction = opts.executeAction ?? missingActionHandler("execute");
-  const getAction = opts.getAction ?? missingActionHandler("get");
-  const cancelAction = opts.cancelAction ?? missingActionHandler("cancel");
+  const prepareAction = opts.prepareAction ?? defaultPrepareAction;
+  const confirmAction = opts.confirmAction ?? defaultConfirmAction;
+  const executeAction = opts.executeAction ?? defaultExecuteAction;
+  const getAction = opts.getAction ?? defaultGetAction;
+  const cancelAction = opts.cancelAction ?? defaultCancelAction;
   const listMemory = opts.listMemory ?? defaultListMemory;
   const createMemory = opts.createMemory ?? defaultCreateMemory;
   const updateMemory = opts.updateMemory ?? defaultUpdateMemory;
@@ -751,6 +764,150 @@ function missingAskHandler() {
   };
 }
 
+async function defaultPrepareAction(input: ActionRequestInput): Promise<ActionRequestResult> {
+  if (!input.actionType || !input.parameters || !input.idempotencyKey) {
+    throw new Error("action_prepare_invalid");
+  }
+  const proposal = parseActionProposal({ actionType: input.actionType, parameters: input.parameters });
+  const validation = validateProposal(proposal);
+  if (!validation.valid) throw new Error(`action_invalid: ${validation.errors.join("; ")}`);
+  const providers = await googleExecutors(input.employeeId);
+
+  switch (proposal.actionType) {
+    case "GMAIL_CREATE_DRAFT":
+      return toActionResult(await providers.gmail.createDraftAction({
+        employeeId: input.employeeId,
+        conversationId: input.conversationId,
+        idempotencyKey: input.idempotencyKey,
+        to: String(proposal.parameters.to),
+        subject: String(proposal.parameters.subject),
+        body: String(proposal.parameters.body),
+      }));
+    case "GMAIL_SEND_DRAFT":
+      return toActionResult(await providers.gmail.sendDraftAction({
+        employeeId: input.employeeId,
+        conversationId: input.conversationId,
+        draftActionId: String(proposal.parameters.draftId),
+        idempotencyKey: input.idempotencyKey,
+      }));
+    case "CALENDAR_FREEBUSY":
+      return {
+        id: "",
+        status: (await providers.calendar.queryFreeBusy({
+          employeeId: input.employeeId,
+          idempotencyKey: input.idempotencyKey,
+          start: String(proposal.parameters.start),
+          end: String(proposal.parameters.end),
+        })).status,
+        parameters: proposal.parameters,
+      };
+    case "CALENDAR_CREATE_PERSONAL_EVENT":
+      return toActionResult(await providers.calendar.createPersonalEventAction({
+        employeeId: input.employeeId,
+        conversationId: input.conversationId,
+        idempotencyKey: input.idempotencyKey,
+        summary: String(proposal.parameters.summary),
+        start: String(proposal.parameters.start),
+        end: String(proposal.parameters.end),
+      }));
+    case "CALENDAR_CREATE_MEETING":
+      return toActionResult(await providers.calendar.createMeetingAction({
+        employeeId: input.employeeId,
+        conversationId: input.conversationId,
+        idempotencyKey: input.idempotencyKey,
+        summary: String(proposal.parameters.summary),
+        start: String(proposal.parameters.start),
+        end: String(proposal.parameters.end),
+        attendees: (proposal.parameters.attendees as string[]),
+      }));
+    default:
+      throw new Error(`action_type_not_supported: ${proposal.actionType}`);
+  }
+}
+
+async function defaultConfirmAction(input: ActionRequestInput): Promise<ActionRequestResult> {
+  if (!input.actionId) throw new Error("action_confirm_invalid");
+  const action = await getStoredAction(input.actionId);
+  if (!action || action.employeeId !== input.employeeId) throw new Error("action_not_found");
+  if (action.status !== "AWAITING_CONFIRMATION") throw new Error("action_confirmation_not_required");
+  const confirmedParametersHash = createHash("sha256")
+    .update(JSON.stringify(action.parametersJson))
+    .digest("hex");
+  await db.actionConfirmation.create({
+    data: { actionId: action.id, employeeId: input.employeeId, confirmedParametersHash },
+  });
+  return toActionResult(await transitionAction(action.id, "EXECUTING"));
+}
+
+async function defaultExecuteAction(input: ActionRequestInput): Promise<ActionRequestResult> {
+  if (!input.actionId) throw new Error("action_execute_invalid");
+  const action = await getStoredAction(input.actionId);
+  if (!action || action.employeeId !== input.employeeId) throw new Error("action_not_found");
+  const providers = await googleExecutors(input.employeeId);
+  switch (action.type) {
+    case "GMAIL_SEND_DRAFT":
+      return toActionResult(await providers.gmail.executeSend(action.id));
+    case "CALENDAR_CREATE_MEETING":
+      return toActionResult(await providers.calendar.executeCreateMeeting(action.id));
+    default:
+      throw new Error(`action_execute_not_supported: ${action.type}`);
+  }
+}
+
+async function defaultGetAction(input: ActionRequestInput): Promise<ActionRequestResult> {
+  if (!input.actionId) throw new Error("action_get_invalid");
+  const action = await getStoredAction(input.actionId);
+  if (!action || action.employeeId !== input.employeeId) throw new Error("action_not_found");
+  return toActionResult(action);
+}
+
+async function defaultCancelAction(input: ActionRequestInput): Promise<ActionRequestResult> {
+  if (!input.actionId) throw new Error("action_cancel_invalid");
+  const action = await getStoredAction(input.actionId);
+  if (!action || action.employeeId !== input.employeeId) throw new Error("action_not_found");
+  return toActionResult(await transitionAction(action.id, "CANCELLED"));
+}
+
+async function googleExecutors(employeeId: string): Promise<{
+  gmail: GmailActionExecutor;
+  calendar: CalendarActionExecutor;
+}> {
+  const { loadConfig } = await import("@hermes/config");
+  const cfg = loadConfig(process.env);
+  if (!cfg.googleClientId || !cfg.googleClientSecret || !cfg.tokenEncryptionKey) {
+    throw new Error("google_oauth_not_configured");
+  }
+  const tokenSource = new GoogleOAuthAccessTokenSource(
+    cfg.googleClientId,
+    cfg.googleClientSecret,
+    cfg.tokenEncryptionKey,
+  );
+  return {
+    gmail: new GmailActionExecutor(new GoogleGmailProvider(employeeId, tokenSource)),
+    calendar: new CalendarActionExecutor(new GoogleCalendarProvider(employeeId, tokenSource)),
+  };
+}
+
+function toActionResult(action: {
+  id: string;
+  employeeId: string;
+  status: string;
+  type?: string;
+  parametersJson?: unknown;
+  confirmationRequired?: boolean;
+  externalResourceId?: string | null;
+}): ActionRequestResult {
+  return {
+    id: action.id,
+    employeeId: action.employeeId,
+    status: action.status,
+    type: action.type,
+    parameters: action.parametersJson,
+    confirmationRequired: action.confirmationRequired,
+    externalResourceId: action.externalResourceId,
+  };
+}
+
 async function defaultCreateGoogleConnectUrl(input: GoogleConnectInput): Promise<{ url: string }> {
   const { loadConfig } = await import("@hermes/config");
   const cfg = loadConfig(process.env);
@@ -903,12 +1060,6 @@ function handleGoogleError(
   }
   request.log.error(error);
   return reply.code(500).send({ error: "google_request_failed" });
-}
-
-function missingActionHandler(operation: string) {
-  return async (): Promise<ActionRequestResult> => {
-    throw new Error(`action_${operation}_not_configured`);
-  };
 }
 
 async function runActionRequest(
