@@ -68,6 +68,9 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @hermes/db exec prisma generate
 
+      - name: Enable pgvector
+        run: psql "$DATABASE_URL" -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+
       - name: Push database schema
         run: pnpm --filter @hermes/db exec prisma db push --force-reset
 
