@@ -209,7 +209,17 @@ importers:
         specifier: workspace:*
         version: link:../db
 
-  packages/ssot: {}
+  packages/ssot:
+    dependencies:
+      "@hermes/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+      "@hermes/db":
+        specifier: workspace:*
+        version: link:../db
+      "@hermes/knowledge":
+        specifier: workspace:*
+        version: link:../knowledge
 
   packages/storage:
     dependencies:

@@ -14,5 +14,10 @@
   "scripts": {
     "build": "tsc -b tsconfig.json",
     "typecheck": "tsc -b tsconfig.json"
+  },
+  "dependencies": {
+    "@hermes/contracts": "workspace:*",
+    "@hermes/db": "workspace:*",
+    "@hermes/knowledge": "workspace:*"
   }
 }
