@@ -150,7 +150,14 @@ importers:
         specifier: workspace:*
         version: link:../db
 
-  packages/knowledge: {}
+  packages/knowledge:
+    dependencies:
+      "@hermes/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+      "@hermes/db":
+        specifier: workspace:*
+        version: link:../db
 
   packages/llm: {}
 
