@@ -4,9 +4,18 @@
   "private": true,
   "type": "module",
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -b tsconfig.json",
-    "typecheck": "tsc -b tsconfig.json"
+    "typecheck": "tsc -b tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@hermes/audit": "workspace:*",
+    "@hermes/config": "workspace:*",
+    "@hermes/contracts": "workspace:*",
+    "@hermes/db": "workspace:*",
+    "@hermes/identity": "workspace:*",
+    "discord.js": "^14.16.3"
   }
 }

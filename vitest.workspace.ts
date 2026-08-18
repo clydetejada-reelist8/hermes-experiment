@@ -26,7 +26,11 @@ export default defineWorkspace([
     ...shared,
     test: {
       name: "unit",
-      include: ["packages/**/src/**/*.test.ts", "apps/**/test/**/*.test.ts"],
+      include: [
+        "packages/**/src/**/*.test.ts",
+        "apps/**/test/**/*.test.ts",
+        "apps/**/src/**/*.test.ts",
+      ],
       environment: "node",
       setupFiles: ["test/setup.ts"],
     },
