@@ -55,6 +55,9 @@ importers:
       "@hermes/policy":
         specifier: workspace:*
         version: link:../../packages/policy
+      "@hermes/ssot":
+        specifier: workspace:*
+        version: link:../../packages/ssot
       "@hermes/storage":
         specifier: workspace:*
         version: link:../../packages/storage
@@ -242,6 +245,9 @@ importers:
       "@hermes/knowledge":
         specifier: workspace:*
         version: link:../knowledge
+      "@hermes/policy":
+        specifier: workspace:*
+        version: link:../policy
 
   packages/storage:
     dependencies:

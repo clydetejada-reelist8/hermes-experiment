@@ -19,6 +19,7 @@
     "@hermes/identity": "workspace:*",
     "@hermes/policy": "workspace:*",
     "@hermes/storage": "workspace:*",
+    "@hermes/ssot": "workspace:*",
     "fastify": "^5.2.1"
   }
 }

@@ -1,5 +1,6 @@
 import { db } from "@hermes/db";
 import type { SSOTProposal, SSOTVersion, SSOTRecord } from "@hermes/db";
+import { evaluateCapability } from "@hermes/policy";
 
 export type { SSOTProposal, SSOTVersion, SSOTRecord };
 
@@ -202,4 +203,58 @@ export async function requestChanges(input: RequestChangesInput): Promise<SSOTPr
       status: "CHANGES_REQUESTED",
     },
   });
+}
+
+export interface ReviewQueueProposal {
+  id: string;
+  title: string;
+  authorityDomain: string;
+  status: "AWAITING_REVIEW";
+  proposedContent: string;
+  sourceArtifactIds: string[];
+}
+
+/**
+ * Return only pending SSOT proposals in domains the employee is authorized to
+ * review. Possessing a company-read capability is not sufficient; the
+ * employee must also hold active REVIEW or APPROVE authority for the domain.
+ */
+export async function getReviewQueueForEmployee(
+  employeeId: string,
+): Promise<ReviewQueueProposal[]> {
+  const capability = await evaluateCapability(employeeId, "SSOT_REVIEW");
+  if (!capability.allowed) throw new Error("review_access_denied");
+
+  const now = new Date();
+  const authorities = await db.domainAuthority.findMany({
+    where: {
+      employeeId,
+      permission: { in: ["REVIEW", "APPROVE"] },
+      activeFrom: { lte: now },
+      OR: [{ activeUntil: null }, { activeUntil: { gt: now } }],
+    },
+    select: { authorityDomain: true },
+  });
+  const domains = authorities.map(
+    (authority: { authorityDomain: string }) => authority.authorityDomain,
+  );
+  if (domains.length === 0) throw new Error("review_access_denied");
+
+  const proposals = await db.sSOTProposal.findMany({
+    where: {
+      status: "AWAITING_REVIEW",
+      authorityDomain: { in: domains },
+    },
+    include: { sources: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return proposals.map((proposal) => ({
+    id: proposal.id,
+    title: proposal.title,
+    authorityDomain: proposal.authorityDomain,
+    status: "AWAITING_REVIEW",
+    proposedContent: proposal.proposedContent,
+    sourceArtifactIds: proposal.sources.map((source: { artifactId: string }) => source.artifactId),
+  }));
 }

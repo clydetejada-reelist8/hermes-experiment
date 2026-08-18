@@ -4,6 +4,7 @@ import type { ArtifactScope, KnowledgeStatus } from "@hermes/contracts";
 import { resolveDiscordEmployee, type Employee } from "@hermes/identity";
 import { IdentityDeniedError } from "@hermes/identity";
 import { ObjectStorage } from "@hermes/storage";
+import { getReviewQueueForEmployee, createProposal, type ReviewQueueProposal } from "@hermes/ssot";
 import { searchVisibleKnowledge, type SearchEvidence, type SearchInput } from "./search.js";
 
 export interface ResolvedIdentity {
@@ -31,6 +32,7 @@ export interface CreateUploadResult {
   uploadId: string;
   artifactId: string;
   versionId: string;
+  proposalId?: string;
   scope: ArtifactScope;
   knowledgeStatus: KnowledgeStatus;
   dataSensitivity: string;
@@ -42,6 +44,7 @@ export interface ServerOptions {
   resolveDiscordIdentity?: (discordUserId: string) => Promise<ResolvedIdentity>;
   searchKnowledge?: (input: SearchInput) => Promise<SearchEvidence[]>;
   createUpload?: (input: CreateUploadInput) => Promise<CreateUploadResult>;
+  getReviewQueue?: (employeeId: string) => Promise<ReviewQueueProposal[]>;
   uploadMaxBytes?: number;
 }
 
@@ -66,6 +69,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   const resolveIdentity = opts.resolveDiscordIdentity ?? defaultResolveDiscordIdentity;
   const searchKnowledge = opts.searchKnowledge ?? searchVisibleKnowledge;
   const createUpload = opts.createUpload ?? defaultCreateUpload;
+  const getReviewQueue = opts.getReviewQueue ?? getReviewQueueForEmployee;
   const uploadMaxBytes = opts.uploadMaxBytes ?? 10 * 1024 * 1024;
 
   // Internal auth guard for all /v1/* routes except /v1/health.
@@ -143,6 +147,31 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     }
   });
 
+  app.get<{ Querystring: { discordUserId?: string } }>(
+    "/v1/ssot/review-queue",
+    async (request, reply) => {
+      const discordUserId = request.query.discordUserId?.trim();
+      if (!discordUserId) {
+        return reply.code(400).send({ error: "invalid_review_queue_request" });
+      }
+
+      try {
+        const identity = await resolveIdentity(discordUserId);
+        const proposals = await getReviewQueue(identity.id);
+        return { employeeId: identity.id, proposals };
+      } catch (error) {
+        if (error instanceof IdentityDeniedError) {
+          return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+        }
+        if (error instanceof Error && error.message === "review_access_denied") {
+          return reply.code(403).send({ error: "review_access_denied" });
+        }
+        request.log.error(error);
+        return reply.code(500).send({ error: "review_queue_failed" });
+      }
+    },
+  );
+
   app.post<{
     Body: {
       discordUserId?: string;
@@ -199,6 +228,9 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       if (error instanceof IdentityDeniedError) {
         return reply.code(403).send({ error: "identity_denied", reason: error.reason });
       }
+      if (error instanceof Error && error.message === "ssot_review_requires_authority_domain") {
+        return reply.code(400).send({ error: "ssot_review_requires_authority_domain" });
+      }
       if (error instanceof Error && error.message === "upload_storage_not_configured") {
         return reply.code(503).send({ error: "upload_storage_not_configured" });
       }
@@ -211,6 +243,10 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
 }
 
 async function defaultCreateUpload(input: CreateUploadInput): Promise<CreateUploadResult> {
+  if (input.destination === "SSOT_REVIEW" && !input.authorityDomain) {
+    throw new Error("ssot_review_requires_authority_domain");
+  }
+
   const { loadConfig } = await import("@hermes/config");
   const cfg = loadConfig(process.env);
   if (
@@ -259,11 +295,23 @@ async function defaultCreateUpload(input: CreateUploadInput): Promise<CreateUplo
     dataSensitivity: classification.sensitivity,
     authorityDomain: input.authorityDomain,
   });
+  let proposalId: string | undefined;
+  if (input.destination === "SSOT_REVIEW") {
+    const proposal = await createProposal({
+      proposedByEmployeeId: input.employeeId,
+      authorityDomain: input.authorityDomain!,
+      title: input.originalFilename,
+      proposedContent: input.content.toString("utf8"),
+      sourceArtifactIds: [imported.artifact.id],
+    });
+    proposalId = proposal.id;
+  }
 
   return {
     uploadId: submission.id,
     artifactId: imported.artifact.id,
     versionId: imported.version.id,
+    proposalId,
     scope: destination.scope,
     knowledgeStatus: destination.knowledgeStatus,
     dataSensitivity: classification.sensitivity,
