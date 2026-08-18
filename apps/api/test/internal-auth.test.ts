@@ -176,4 +176,53 @@ describe("internal auth", () => {
     });
     await app.close();
   });
+
+  it("exposes the SSOT review queue only through the authenticated reviewer path", async () => {
+    let requestedEmployeeId = "";
+    const app = await buildServer({
+      internalServiceToken: "test-token",
+      resolveDiscordIdentity: async () => ({
+        id: "reviewer-1",
+        employeeCode: "RL8-EMP-0002",
+        displayName: "Reviewer",
+        discordUserId: "discord-reviewer",
+      }),
+      getReviewQueue: async (employeeId) => {
+        requestedEmployeeId = employeeId;
+        return [
+          {
+            id: "proposal-1",
+            title: "Sales approval process",
+            authorityDomain: "sales",
+            status: "AWAITING_REVIEW",
+            proposedContent: "Finance review is required.",
+            sourceArtifactIds: ["artifact-1"],
+          },
+        ];
+      },
+    });
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/v1/ssot/review-queue?discordUserId=discord-reviewer",
+      headers: { authorization: "Bearer test-token" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      employeeId: "reviewer-1",
+      proposals: [
+        {
+          id: "proposal-1",
+          title: "Sales approval process",
+          authorityDomain: "sales",
+          status: "AWAITING_REVIEW",
+          proposedContent: "Finance review is required.",
+          sourceArtifactIds: ["artifact-1"],
+        },
+      ],
+    });
+    expect(requestedEmployeeId).toBe("reviewer-1");
+    await app.close();
+  });
 });
