@@ -1,6 +1,9 @@
 import Fastify, { type FastifyInstance } from "fastify";
+import { classifySubmission, createSubmission, ingestImportedFile } from "@hermes/artifacts";
+import type { ArtifactScope, KnowledgeStatus } from "@hermes/contracts";
 import { resolveDiscordEmployee, type Employee } from "@hermes/identity";
 import { IdentityDeniedError } from "@hermes/identity";
+import { ObjectStorage } from "@hermes/storage";
 import { searchVisibleKnowledge, type SearchEvidence, type SearchInput } from "./search.js";
 
 export interface ResolvedIdentity {
@@ -10,11 +13,36 @@ export interface ResolvedIdentity {
   discordUserId: string;
 }
 
+export type UploadDestination =
+  "FOR_ME_ONLY" | "TEAM_REFERENCE" | "PROJECT_REFERENCE" | "COMPANY_REFERENCE" | "SSOT_REVIEW";
+
+export interface CreateUploadInput {
+  employeeId: string;
+  originalFilename: string;
+  mimeType: string;
+  content: Buffer;
+  destination: UploadDestination;
+  teamId?: string;
+  projectId?: string;
+  authorityDomain?: string;
+}
+
+export interface CreateUploadResult {
+  uploadId: string;
+  artifactId: string;
+  versionId: string;
+  scope: ArtifactScope;
+  knowledgeStatus: KnowledgeStatus;
+  dataSensitivity: string;
+}
+
 export interface ServerOptions {
   internalServiceToken: string;
   logger?: boolean;
   resolveDiscordIdentity?: (discordUserId: string) => Promise<ResolvedIdentity>;
   searchKnowledge?: (input: SearchInput) => Promise<SearchEvidence[]>;
+  createUpload?: (input: CreateUploadInput) => Promise<CreateUploadResult>;
+  uploadMaxBytes?: number;
 }
 
 function defaultResolveDiscordIdentity(discordUserId: string): Promise<ResolvedIdentity> {
@@ -37,6 +65,8 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   const app = Fastify({ logger: opts.logger ?? false });
   const resolveIdentity = opts.resolveDiscordIdentity ?? defaultResolveDiscordIdentity;
   const searchKnowledge = opts.searchKnowledge ?? searchVisibleKnowledge;
+  const createUpload = opts.createUpload ?? defaultCreateUpload;
+  const uploadMaxBytes = opts.uploadMaxBytes ?? 10 * 1024 * 1024;
 
   // Internal auth guard for all /v1/* routes except /v1/health.
   app.addHook("onRequest", async (request, reply) => {
@@ -113,7 +143,149 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     }
   });
 
+  app.post<{
+    Body: {
+      discordUserId?: string;
+      filename?: string;
+      mimeType?: string;
+      contentBase64?: string;
+      destination?: UploadDestination;
+      teamId?: string;
+      projectId?: string;
+      authorityDomain?: string;
+    };
+  }>("/v1/uploads", async (request, reply) => {
+    const body = request.body ?? {};
+    const discordUserId = body.discordUserId?.trim();
+    const filename = body.filename?.trim();
+    const mimeType = body.mimeType?.trim();
+    const contentBase64 = body.contentBase64?.trim();
+    const destination = body.destination;
+
+    if (!discordUserId || !filename || !mimeType || !contentBase64 || !destination) {
+      return reply.code(400).send({ error: "invalid_upload_request" });
+    }
+    if (
+      ![
+        "FOR_ME_ONLY",
+        "TEAM_REFERENCE",
+        "PROJECT_REFERENCE",
+        "COMPANY_REFERENCE",
+        "SSOT_REVIEW",
+      ].includes(destination)
+    ) {
+      return reply.code(400).send({ error: "invalid_upload_destination" });
+    }
+
+    const content = Buffer.from(contentBase64, "base64");
+    if (content.length === 0 || content.length > uploadMaxBytes) {
+      return reply.code(413).send({ error: "upload_size_exceeded" });
+    }
+
+    try {
+      const identity = await resolveIdentity(discordUserId);
+      const result = await createUpload({
+        employeeId: identity.id,
+        originalFilename: filename,
+        mimeType,
+        content,
+        destination,
+        teamId: body.teamId,
+        projectId: body.projectId,
+        authorityDomain: body.authorityDomain,
+      });
+      return reply.code(201).send(result);
+    } catch (error) {
+      if (error instanceof IdentityDeniedError) {
+        return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+      }
+      if (error instanceof Error && error.message === "upload_storage_not_configured") {
+        return reply.code(503).send({ error: "upload_storage_not_configured" });
+      }
+      request.log.error(error);
+      return reply.code(500).send({ error: "upload_failed" });
+    }
+  });
+
   return app;
+}
+
+async function defaultCreateUpload(input: CreateUploadInput): Promise<CreateUploadResult> {
+  const { loadConfig } = await import("@hermes/config");
+  const cfg = loadConfig(process.env);
+  if (
+    !cfg.objectStorageEndpoint ||
+    !cfg.objectStorageBucket ||
+    !cfg.objectStorageAccessKey ||
+    !cfg.objectStorageSecretKey
+  ) {
+    throw new Error("upload_storage_not_configured");
+  }
+
+  const storage = new ObjectStorage({
+    endpoint: cfg.objectStorageEndpoint,
+    bucket: cfg.objectStorageBucket,
+    accessKey: cfg.objectStorageAccessKey,
+    secretKey: cfg.objectStorageSecretKey,
+  });
+  await storage.createBucketIfNotExists(cfg.objectStorageBucket);
+
+  const imported = await ingestImportedFile({
+    storage,
+    bucket: cfg.objectStorageBucket,
+    submittedByEmployeeId: input.employeeId,
+    originalFilename: input.originalFilename,
+    mimeType: input.mimeType,
+    content: input.content,
+    sourceSystem: "HERMES_UPLOAD",
+  });
+  const classification = classifySubmission({
+    filename: input.originalFilename,
+    mimeType: input.mimeType,
+    content: input.content.toString("utf8"),
+    submittedByEmployeeId: input.employeeId,
+    teamId: input.teamId,
+    projectId: input.projectId,
+  });
+  const destination = mapUploadDestination(input.destination);
+  const submission = await createSubmission({
+    artifactId: imported.artifact.id,
+    submittedByEmployeeId: input.employeeId,
+    ownerEmployeeId: input.employeeId,
+    scope: destination.scope,
+    teamId: input.teamId,
+    projectId: input.projectId,
+    knowledgeStatus: destination.knowledgeStatus,
+    dataSensitivity: classification.sensitivity,
+    authorityDomain: input.authorityDomain,
+  });
+
+  return {
+    uploadId: submission.id,
+    artifactId: imported.artifact.id,
+    versionId: imported.version.id,
+    scope: destination.scope,
+    knowledgeStatus: destination.knowledgeStatus,
+    dataSensitivity: classification.sensitivity,
+  };
+}
+
+function mapUploadDestination(destination: UploadDestination): {
+  scope: ArtifactScope;
+  knowledgeStatus: KnowledgeStatus;
+} {
+  switch (destination) {
+    case "FOR_ME_ONLY":
+      return { scope: "PERSONAL", knowledgeStatus: "PERSONAL_CONTEXT" };
+    case "TEAM_REFERENCE":
+      return { scope: "TEAM", knowledgeStatus: "REFERENCE" };
+    case "PROJECT_REFERENCE":
+      return { scope: "PROJECT", knowledgeStatus: "REFERENCE" };
+    case "COMPANY_REFERENCE":
+      return { scope: "COMPANY", knowledgeStatus: "REFERENCE" };
+    case "SSOT_REVIEW":
+      return { scope: "COMPANY", knowledgeStatus: "PENDING_REVIEW" };
+  }
 }
 
 async function start(): Promise<void> {
