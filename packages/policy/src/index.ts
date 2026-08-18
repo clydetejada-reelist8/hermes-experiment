@@ -1,9 +1,5 @@
 import { db } from "@hermes/db";
-import type {
-  ArtifactScope,
-  Capability,
-  PolicyDecision,
-} from "@hermes/contracts";
+import type { ArtifactScope, Capability, PolicyDecision } from "@hermes/contracts";
 import { allow, deny } from "@hermes/contracts";
 
 export type { PolicyDecision } from "@hermes/contracts";
