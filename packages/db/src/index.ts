@@ -1,5 +1,4 @@
-export { db, PrismaClient } from "./client.js";
-export type { Prisma } from "./client.js";
+export { db, Prisma, PrismaClient } from "./client.js";
 export type {
   Employee,
   ExternalIdentity,
