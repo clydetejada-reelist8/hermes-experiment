@@ -1,0 +1,19 @@
+[Unit]
+Description=REELIST8 Hermes Control Plane API
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=hermes
+Group=hermes
+WorkingDirectory=/home/hermes/reelist8-hermes-experiment
+EnvironmentFile=/home/hermes/.hermes/reelist8-control-plane.env
+ExecStart=/home/hermes/.hermes/node/bin/node /home/hermes/reelist8-hermes-experiment/apps/api/dist/server.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
