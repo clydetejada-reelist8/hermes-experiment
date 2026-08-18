@@ -30,3 +30,12 @@ export type {
   UpdateEventInput,
   CancelEventInput,
 } from "./calendar.js";
+export {
+  createReminder,
+  getReminder,
+  completeReminder,
+  cancelReminder,
+  getDueReminders,
+  getRemindersForEmployee,
+} from "./reminders.js";
+export type { CreateReminderInput, Reminder } from "./reminders.js";
