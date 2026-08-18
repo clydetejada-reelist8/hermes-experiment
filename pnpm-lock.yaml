@@ -91,7 +91,14 @@ importers:
 
   apps/worker: {}
 
-  packages/actions: {}
+  packages/actions:
+    dependencies:
+      "@hermes/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+      "@hermes/db":
+        specifier: workspace:*
+        version: link:../db
 
   packages/artifacts:
     dependencies:
