@@ -22,3 +22,7 @@ export type {
 } from "./proposal.js";
 export { detectContradictions } from "./contradiction.js";
 export type { Contradiction, ContradictionResult } from "./contradiction.js";
+export { importSSOTContent, ssotSubjectKey } from "./import.js";
+export type { ImportSSOTContentInput, ImportSSOTContentResult } from "./import.js";
+export { getSSOTDocumentForEmployee } from "./document.js";
+export type { SSOTDocument } from "./document.js";

@@ -10,8 +10,10 @@ import {
   getReviewQueueForEmployee,
   rejectProposalAsReviewer,
   requestChangesAsReviewer,
+  getSSOTDocumentForEmployee,
   type ReviewActionResult,
   type ReviewQueueProposal,
+  type SSOTDocument,
 } from "@hermes/ssot";
 import { searchVisibleKnowledge, type SearchEvidence, type SearchInput } from "./search.js";
 
@@ -53,6 +55,7 @@ export interface ServerOptions {
   searchKnowledge?: (input: SearchInput) => Promise<SearchEvidence[]>;
   createUpload?: (input: CreateUploadInput) => Promise<CreateUploadResult>;
   getReviewQueue?: (employeeId: string) => Promise<ReviewQueueProposal[]>;
+  getSSOTDocument?: (employeeId: string, versionId: string) => Promise<SSOTDocument>;
   approveSSOTProposal?: (input: {
     proposalId: string;
     employeeId: string;
@@ -90,6 +93,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   const searchKnowledge = opts.searchKnowledge ?? searchVisibleKnowledge;
   const createUpload = opts.createUpload ?? defaultCreateUpload;
   const getReviewQueue = opts.getReviewQueue ?? getReviewQueueForEmployee;
+  const getSSOTDocument = opts.getSSOTDocument ?? getSSOTDocumentForEmployee;
   const approveSSOTProposal = opts.approveSSOTProposal ?? approveProposalAsReviewer;
   const rejectSSOTProposal = opts.rejectSSOTProposal ?? rejectProposalAsReviewer;
   const requestSSOTChanges = opts.requestSSOTChanges ?? requestChangesAsReviewer;
@@ -194,6 +198,33 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       }
     },
   );
+
+  app.post<{
+    Body: { discordUserId?: string; ssotVersionId?: string };
+  }>("/v1/ssot/document", async (request, reply) => {
+    const discordUserId = request.body?.discordUserId?.trim();
+    const ssotVersionId = request.body?.ssotVersionId?.trim();
+    if (!discordUserId || !ssotVersionId) {
+      return reply.code(400).send({ error: "invalid_ssot_document_request" });
+    }
+
+    try {
+      const identity = await resolveIdentity(discordUserId);
+      return await getSSOTDocument(identity.id, ssotVersionId);
+    } catch (error) {
+      if (error instanceof IdentityDeniedError) {
+        return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+      }
+      if (error instanceof Error && error.message === "ssot_document_access_denied") {
+        return reply.code(403).send({ error: "ssot_document_access_denied" });
+      }
+      if (error instanceof Error && error.message === "ssot_document_not_found") {
+        return reply.code(404).send({ error: "ssot_document_not_found" });
+      }
+      request.log.error(error);
+      return reply.code(500).send({ error: "ssot_document_failed" });
+    }
+  });
 
   app.post<{
     Params: { proposalId: string };

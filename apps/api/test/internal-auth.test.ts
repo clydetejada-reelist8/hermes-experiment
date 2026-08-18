@@ -258,4 +258,38 @@ describe("internal auth", () => {
     expect(actionInput).toEqual({ proposalId: "proposal-1", employeeId: "reviewer-1" });
     await app.close();
   });
+
+  it("returns the complete authorized SSOT document", async () => {
+    const app = await buildServer({
+      internalServiceToken: "test-token",
+      resolveDiscordIdentity: async () => ({
+        id: "employee-1",
+        employeeCode: "RL8-EMP-0001",
+        displayName: "Employee",
+        discordUserId: "discord-1",
+      }),
+      getSSOTDocument: async () => ({
+        recordId: "record-1",
+        versionId: "version-1",
+        title: "REELIST8 Company Values",
+        authorityDomain: "company",
+        content: "The Spirit: full text.\nThe Actions: full text.",
+        sourceLocators: ["ssot/company-values.md"],
+        effectiveFrom: new Date("2026-08-17T00:00:00.000Z"),
+        effectiveUntil: null,
+      }),
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/ssot/document",
+      headers: { authorization: "Bearer test-token" },
+      payload: { discordUserId: "discord-1", ssotVersionId: "version-1" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().content).toContain("The Spirit: full text.");
+    expect(res.json().content).toContain("The Actions: full text.");
+    await app.close();
+  });
 });

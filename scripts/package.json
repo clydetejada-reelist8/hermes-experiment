@@ -13,6 +13,7 @@
     "@hermes/db": "workspace:*",
     "@hermes/llm": "workspace:*",
     "@hermes/actions": "workspace:*",
-    "@hermes/admin": "workspace:*"
+    "@hermes/admin": "workspace:*",
+    "@hermes/ssot": "workspace:*"
   }
 }

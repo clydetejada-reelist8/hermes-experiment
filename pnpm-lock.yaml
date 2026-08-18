@@ -275,6 +275,9 @@ importers:
       "@hermes/llm":
         specifier: workspace:*
         version: link:../packages/llm
+      "@hermes/ssot":
+        specifier: workspace:*
+        version: link:../packages/ssot
 
 packages:
   "@aws-sdk/checksums@3.1000.28":
