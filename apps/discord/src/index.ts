@@ -9,7 +9,14 @@ import {
 
 export { tryClaimInboundEvent } from "./dedup.js";
 export { createPrivateThread } from "./threads.js";
+export { classifyDiscordMessage } from "./routing.js";
 export type { DiscordThreadChannel, DiscordParentChannel } from "./threads.js";
+export type {
+  DiscordChannelConfig,
+  DiscordMessageKind,
+  DiscordMessageRoute,
+  DiscordMessageRouteInput,
+} from "./routing.js";
 
 /**
  * Adapter that wraps a discord.js TextChannel to satisfy
