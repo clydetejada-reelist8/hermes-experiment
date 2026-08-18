@@ -16,6 +16,7 @@
     "@hermes/config": "workspace:*",
     "@hermes/contracts": "workspace:*",
     "@hermes/db": "workspace:*",
+    "@hermes/google": "workspace:*",
     "@hermes/identity": "workspace:*",
     "@hermes/memory": "workspace:*",
     "@hermes/policy": "workspace:*",

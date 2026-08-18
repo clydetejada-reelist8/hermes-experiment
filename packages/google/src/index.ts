@@ -1,4 +1,6 @@
 export { encryptToken, decryptToken } from "./crypto.js";
+export { buildGoogleAuthorizationUrl } from "./oauth.js";
+export type { GoogleAuthorizationUrlInput } from "./oauth.js";
 export {
   createOAuthState,
   consumeOAuthState,

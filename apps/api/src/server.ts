@@ -9,6 +9,15 @@ import type {
 } from "@hermes/contracts";
 import { resolveDiscordEmployee, type Employee } from "@hermes/identity";
 import { IdentityDeniedError } from "@hermes/identity";
+import {
+  buildGoogleAuthorizationUrl,
+  createOAuthState,
+  consumeOAuthState,
+  encryptToken,
+  getActiveConnection,
+  revokeConnection,
+  saveConnection,
+} from "@hermes/google";
 import { ObjectStorage } from "@hermes/storage";
 import {
   addMemory,
@@ -106,6 +115,21 @@ export interface AskRequestResult {
   conflictChunkIds: string[];
 }
 
+export interface GoogleConnectInput {
+  employeeId: string;
+  capabilities: string[];
+}
+
+export interface GoogleConnectionResult {
+  connected: boolean;
+  [key: string]: unknown;
+}
+
+export interface GoogleOAuthCallbackInput {
+  code: string;
+  state: string;
+}
+
 export interface ServerOptions {
   internalServiceToken: string;
   logger?: boolean;
@@ -113,6 +137,10 @@ export interface ServerOptions {
   searchKnowledge?: (input: SearchInput) => Promise<SearchEvidence[]>;
   createUpload?: (input: CreateUploadInput) => Promise<CreateUploadResult>;
   ask?: (input: AskRequestInput) => Promise<AskRequestResult>;
+  createGoogleConnectUrl?: (input: GoogleConnectInput) => Promise<{ url: string }>;
+  completeGoogleOAuth?: (input: GoogleOAuthCallbackInput) => Promise<GoogleConnectionResult>;
+  getGoogleConnection?: (input: { employeeId: string }) => Promise<GoogleConnectionResult>;
+  revokeGoogleConnection?: (input: { employeeId: string }) => Promise<{ revoked: boolean }>;
   prepareAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
   confirmAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
   executeAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
@@ -161,6 +189,10 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   const searchKnowledge = opts.searchKnowledge ?? searchVisibleKnowledge;
   const createUpload = opts.createUpload ?? defaultCreateUpload;
   const ask = opts.ask ?? missingAskHandler();
+  const createGoogleConnectUrl = opts.createGoogleConnectUrl ?? defaultCreateGoogleConnectUrl;
+  const completeGoogleOAuth = opts.completeGoogleOAuth ?? defaultCompleteGoogleOAuth;
+  const getGoogleConnection = opts.getGoogleConnection ?? defaultGetGoogleConnection;
+  const revokeGoogleConnection = opts.revokeGoogleConnection ?? defaultRevokeGoogleConnection;
   const prepareAction = opts.prepareAction ?? missingActionHandler("prepare");
   const confirmAction = opts.confirmAction ?? missingActionHandler("confirm");
   const executeAction = opts.executeAction ?? missingActionHandler("execute");
@@ -180,7 +212,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   // Internal auth guard for all /v1/* routes except /v1/health.
   app.addHook("onRequest", async (request, reply) => {
     const url = request.url.split("?")[0] ?? request.url;
-    if (!url.startsWith("/v1/") || url === "/v1/health") return;
+    if (!url.startsWith("/v1/") || url === "/v1/health" || url === "/v1/google/oauth/callback") return;
 
     const auth = request.headers.authorization;
     if (!auth || !auth.startsWith("Bearer ")) {
@@ -282,6 +314,59 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       }
       request.log.error(error);
       return reply.code(500).send({ error: "ask_failed" });
+    }
+  });
+
+  app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
+    "/v1/google/oauth/callback",
+    async (request, reply) => {
+      const { code, state, error } = request.query;
+      if (error) return reply.code(400).send({ error: "google_authorization_denied", providerError: error });
+      if (!code?.trim() || !state?.trim()) {
+        return reply.code(400).send({ error: "invalid_google_callback_request" });
+      }
+      try {
+        return await completeGoogleOAuth({ code: code.trim(), state: state.trim() });
+      } catch (callbackError) {
+        return handleGoogleError(request, reply, callbackError);
+      }
+    },
+  );
+
+  app.post<{
+    Body: { discordUserId?: string; capabilities?: string[] };
+  }>("/v1/google/connect-url", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.discordUserId?.trim() || !Array.isArray(body.capabilities) || body.capabilities.length === 0) {
+      return reply.code(400).send({ error: "invalid_google_connect_request" });
+    }
+    try {
+      const identity = await resolveIdentity(body.discordUserId.trim());
+      return await createGoogleConnectUrl({ employeeId: identity.id, capabilities: body.capabilities });
+    } catch (error) {
+      return handleGoogleError(request, reply, error);
+    }
+  });
+
+  app.get<{ Querystring: { discordUserId?: string } }>("/v1/google/connection", async (request, reply) => {
+    const discordUserId = request.query.discordUserId?.trim();
+    if (!discordUserId) return reply.code(400).send({ error: "invalid_google_connection_request" });
+    try {
+      const identity = await resolveIdentity(discordUserId);
+      return await getGoogleConnection({ employeeId: identity.id });
+    } catch (error) {
+      return handleGoogleError(request, reply, error);
+    }
+  });
+
+  app.delete<{ Body: { discordUserId?: string } }>("/v1/google/connection", async (request, reply) => {
+    const discordUserId = request.body?.discordUserId?.trim();
+    if (!discordUserId) return reply.code(400).send({ error: "invalid_google_connection_request" });
+    try {
+      const identity = await resolveIdentity(discordUserId);
+      return await revokeGoogleConnection({ employeeId: identity.id });
+    } catch (error) {
+      return handleGoogleError(request, reply, error);
     }
   });
 
@@ -664,6 +749,160 @@ function missingAskHandler() {
   return async (): Promise<AskRequestResult> => {
     throw new Error("ask_not_configured");
   };
+}
+
+async function defaultCreateGoogleConnectUrl(input: GoogleConnectInput): Promise<{ url: string }> {
+  const { loadConfig } = await import("@hermes/config");
+  const cfg = loadConfig(process.env);
+  if (!cfg.googleClientId || !cfg.googleRedirectUri) {
+    throw new Error("google_oauth_not_configured");
+  }
+
+  const scopes = scopesForCapabilities(input.capabilities);
+  const state = await createOAuthState({
+    employeeId: input.employeeId,
+    requestedScopes: scopes,
+    redirectTarget: "/",
+    key: cfg.tokenEncryptionKey ?? "",
+  });
+  return {
+    url: buildGoogleAuthorizationUrl({
+      clientId: cfg.googleClientId,
+      redirectUri: cfg.googleRedirectUri,
+      state: state.state,
+      scopes,
+      hostedDomain: cfg.stagingGoogleHostedDomain,
+    }),
+  };
+}
+
+async function defaultGetGoogleConnection(input: {
+  employeeId: string;
+}): Promise<GoogleConnectionResult> {
+  const connection = await getActiveConnection(input.employeeId);
+  if (!connection) return { connected: false };
+  return {
+    connected: true,
+    providerEmail: connection.providerEmail,
+    scopes: connection.grantedScopes,
+    status: connection.status,
+    lastVerifiedAt: connection.lastVerifiedAt,
+  };
+}
+
+async function defaultRevokeGoogleConnection(input: { employeeId: string }): Promise<{ revoked: boolean }> {
+  await revokeConnection(input.employeeId);
+  return { revoked: true };
+}
+
+function scopesForCapabilities(capabilities: string[]): string[] {
+  const scopes = new Set<string>(["openid", "email"]);
+  for (const capability of capabilities) {
+    switch (capability) {
+      case "GMAIL_DRAFT":
+      case "GMAIL_SEND":
+        scopes.add("https://www.googleapis.com/auth/gmail.compose");
+        break;
+      case "CALENDAR_FREEBUSY":
+        scopes.add("https://www.googleapis.com/auth/calendar.freebusy");
+        break;
+      case "CALENDAR_CREATE_PERSONAL_EVENT":
+      case "CALENDAR_INVITE_OTHERS":
+      case "CALENDAR_UPDATE_EVENT":
+      case "CALENDAR_CANCEL_EVENT":
+        scopes.add("https://www.googleapis.com/auth/calendar.events");
+        break;
+      case "DRIVE_FILE":
+        scopes.add("https://www.googleapis.com/auth/drive.file");
+        break;
+      default:
+        throw new Error(`unsupported_google_capability: ${capability}`);
+    }
+  }
+  return [...scopes];
+}
+
+async function defaultCompleteGoogleOAuth(
+  input: GoogleOAuthCallbackInput,
+): Promise<GoogleConnectionResult> {
+  const { loadConfig } = await import("@hermes/config");
+  const cfg = loadConfig(process.env);
+  if (!cfg.googleClientId || !cfg.googleClientSecret || !cfg.googleRedirectUri || !cfg.tokenEncryptionKey) {
+    throw new Error("google_oauth_not_configured");
+  }
+
+  const state = await consumeOAuthState(input.state, cfg.tokenEncryptionKey);
+  if (!state) throw new Error("google_oauth_state_invalid");
+
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code: input.code,
+      client_id: cfg.googleClientId,
+      client_secret: cfg.googleClientSecret,
+      redirect_uri: cfg.googleRedirectUri,
+      grant_type: "authorization_code",
+    }),
+  });
+  if (!tokenResponse.ok) throw new Error("google_token_exchange_failed");
+  const tokenPayload = (await tokenResponse.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    scope?: string;
+  };
+  if (!tokenPayload.access_token || !tokenPayload.refresh_token) {
+    throw new Error("google_refresh_token_missing");
+  }
+
+  const userinfoResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+    headers: { Authorization: `Bearer ${tokenPayload.access_token}` },
+  });
+  if (!userinfoResponse.ok) throw new Error("google_identity_verification_failed");
+  const userinfo = (await userinfoResponse.json()) as {
+    sub?: string;
+    email?: string;
+    hd?: string;
+  };
+  if (!userinfo.sub) throw new Error("google_subject_missing");
+  if (cfg.stagingGoogleHostedDomain && userinfo.hd !== cfg.stagingGoogleHostedDomain) {
+    throw new Error("google_hosted_domain_denied");
+  }
+
+  const grantedScopes = tokenPayload.scope?.split(" ").filter(Boolean) ?? state.requestedScopes;
+  const connection = await saveConnection({
+    employeeId: state.employeeId,
+    providerAccountId: userinfo.sub,
+    providerEmail: userinfo.email,
+    hostedDomain: userinfo.hd,
+    encryptedRefreshToken: encryptToken(tokenPayload.refresh_token, cfg.tokenEncryptionKey),
+    accessTokenExpiresAt: tokenPayload.expires_in
+      ? new Date(Date.now() + tokenPayload.expires_in * 1000)
+      : undefined,
+    grantedScopes,
+    key: cfg.tokenEncryptionKey,
+  });
+  return {
+    connected: true,
+    providerEmail: connection.providerEmail,
+    scopes: connection.grantedScopes,
+  };
+}
+
+function handleGoogleError(
+  request: { log: { error(error: unknown): void } },
+  reply: { code(statusCode: number): { send(payload: unknown): unknown } },
+  error: unknown,
+): unknown {
+  if (error instanceof IdentityDeniedError) {
+    return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+  }
+  if (error instanceof Error && error.message.endsWith("_not_configured")) {
+    return reply.code(503).send({ error: error.message });
+  }
+  request.log.error(error);
+  return reply.code(500).send({ error: "google_request_failed" });
 }
 
 function missingActionHandler(operation: string) {
