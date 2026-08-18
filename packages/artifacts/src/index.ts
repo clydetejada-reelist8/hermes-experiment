@@ -1,3 +1,4 @@
+export { extractText } from "./extract.js";
 export { ingestImportedFile } from "./intake.js";
 export type { IngestImportedFileInput, IngestResult } from "./intake.js";
 export { linkDriveArtifact, createSubmission, getSubmissionsForEmployee } from "./submissions.js";

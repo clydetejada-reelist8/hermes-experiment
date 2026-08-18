@@ -5,6 +5,11 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@hermes/artifacts": "workspace:*",
+    "@hermes/db": "workspace:*",
+    "@hermes/knowledge": "workspace:*"
+  },
   "scripts": {
     "build": "tsc -b tsconfig.json",
     "typecheck": "tsc -b tsconfig.json"
