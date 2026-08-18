@@ -13,3 +13,5 @@ export type {
   RejectProposalInput,
   RequestChangesInput,
 } from "./proposal.js";
+export { detectContradictions } from "./contradiction.js";
+export type { Contradiction, ContradictionResult } from "./contradiction.js";
