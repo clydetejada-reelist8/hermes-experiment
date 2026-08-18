@@ -38,6 +38,7 @@ export default defineWorkspace([
       include: ["test/integration/**/*.test.ts", "test/security/**/*.test.ts"],
       environment: "node",
       setupFiles: ["test/setup.ts"],
+      globalSetup: ["test/integration/global-setup.ts"],
     },
   },
 ]);

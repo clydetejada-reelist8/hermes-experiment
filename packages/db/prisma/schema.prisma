@@ -1,6 +1,5 @@
 // Hermes Knowledge Control Plane — Prisma schema.
-// Models are added incrementally per the implementation plan. This file holds
-// the datasource/generator configuration and is extended in Task 3.
+// Implements the data model from the reviewed staging system design (Section 26).
 
 generator client {
   provider = "prisma-client-js"
@@ -10,4 +9,762 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum EmploymentStatus {
+  ACTIVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum IdentityProvider {
+  DISCORD
+  GOOGLE
+  GITHUB
+}
+
+enum OAuthStatus {
+  ACTIVE
+  REVOKED
+  ERROR
+}
+
+enum ConversationType {
+  ASK
+  UPLOAD
+  ACTION
+  SSOT_REVIEW
+}
+
+enum AudienceClassification {
+  PRIVATE
+  TEAM
+  COMPANY
+}
+
+enum ArtifactMode {
+  IMPORTED
+  LINKED
+}
+
+enum ArtifactScope {
+  THREAD_ONLY
+  PERSONAL
+  PROJECT
+  TEAM
+  COMPANY
+}
+
+enum KnowledgeStatus {
+  PERSONAL_CONTEXT
+  REFERENCE
+  PROPOSAL
+  PENDING_REVIEW
+  OFFICIAL
+  HISTORICAL
+  DISCUSSION
+  INFERENCE
+}
+
+enum DataSensitivity {
+  NORMAL
+  SENSITIVE
+  HIGHLY_SENSITIVE
+}
+
+enum SourceAccessState {
+  ALLOWED
+  DENIED
+  ERROR
+  UNKNOWN
+}
+
+enum SyncState {
+  NOT_REQUIRED
+  PENDING
+  SYNCED
+  AUTH_REQUIRED
+  DELETED
+  ERROR
+}
+
+enum MemoryType {
+  PREFERENCE
+  RESPONSIBILITY
+  ACTIVE_PROJECT
+  COLLABORATOR
+  COMMITMENT
+  PERSONAL_NOTE
+}
+
+enum MemorySensitivity {
+  NORMAL
+  SENSITIVE
+  HIGHLY_SENSITIVE
+}
+
+enum MemoryStatus {
+  ACTIVE
+  EXPIRED
+  DELETED
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum AuthorityPermission {
+  REVIEW
+  APPROVE
+}
+
+enum Capability {
+  KNOWLEDGE_READ_PERSONAL
+  KNOWLEDGE_READ_TEAM
+  KNOWLEDGE_READ_COMPANY
+  ARTIFACT_UPLOAD
+  ARTIFACT_SHARE_TEAM
+  ARTIFACT_SHARE_COMPANY
+  SSOT_PROPOSE
+  SSOT_REVIEW
+  SSOT_APPROVE
+  MEMORY_READ_OWN
+  MEMORY_WRITE_OWN
+  GMAIL_DRAFT
+  GMAIL_SEND
+  CALENDAR_FREEBUSY
+  CALENDAR_CREATE_PERSONAL_EVENT
+  CALENDAR_INVITE_OTHERS
+  CALENDAR_UPDATE_EVENT
+  CALENDAR_CANCEL_EVENT
+  HERMES_ADMIN
+}
+
+enum SSOTProposalStatus {
+  AWAITING_REVIEW
+  CHANGES_REQUESTED
+  REJECTED
+  APPROVED
+}
+
+enum EvidenceSourceType {
+  ARTIFACT_VERSION
+  SSOT_VERSION
+}
+
+enum ActionType {
+  GMAIL_CREATE_DRAFT
+  GMAIL_UPDATE_DRAFT
+  GMAIL_SEND_DRAFT
+  CALENDAR_FREEBUSY
+  CALENDAR_CREATE_PERSONAL_EVENT
+  CALENDAR_CREATE_MEETING
+  CALENDAR_UPDATE_EVENT
+  CALENDAR_CANCEL_EVENT
+  REMINDER_CREATE
+  REMINDER_COMPLETE
+  REMINDER_DELETE
+}
+
+enum ActionRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  PRIVILEGED
+}
+
+enum ActionStatus {
+  PROPOSED
+  PREPARED
+  AWAITING_CONFIRMATION
+  EXECUTING
+  SUCCEEDED
+  FAILED
+  PARTIALLY_SUCCEEDED
+  OUTCOME_UNKNOWN
+  CANCELLED
+}
+
+enum ReminderStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
+// ---------------------------------------------------------------------------
+// Identity & organization
+// ---------------------------------------------------------------------------
+
+model Employee {
+  id                  String           @id @default(uuid())
+  employeeCode        String           @unique
+  displayName         String
+  companyEmail        String           @unique
+  timezone            String
+  managerEmployeeId   String?
+  employmentStatus    EmploymentStatus @default(ACTIVE)
+  stagingAllowlisted  Boolean          @default(false)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  manager             Employee?         @relation("EmployeeManager", fields: [managerEmployeeId], references: [id])
+  directReports       Employee[]        @relation("EmployeeManager")
+  externalIdentities  ExternalIdentity[]
+  oauthConnections    OAuthConnection[]
+  employeeRoles       EmployeeRole[]
+  employeeTeams       EmployeeTeam[]
+  projectMemberships  ProjectMember[]
+  domainAuthorities   DomainAuthority[]
+  personalMemories    PersonalMemory[]
+  conversations       Conversation[]
+  artifactSubmissions ArtifactSubmission[]
+  ownedSubmissions    ArtifactSubmission[] @relation("SubmissionOwner")
+  sourceAccessGrants  SourceAccessGrant[]
+  actions             Action[]
+  actionConfirmations ActionConfirmation[]
+  reminders           Reminder[]
+  ssotVersionsApproved SSOTVersion[]
+  ssotProposals       SSOTProposal[]
+  auditEvents         AuditEvent[]
+
+  @@index([employmentStatus, stagingAllowlisted])
+}
+
+model ExternalIdentity {
+  id                 String           @id @default(uuid())
+  employeeId         String
+  provider           IdentityProvider
+  providerSubjectId  String
+  providerEmail      String?
+  verifiedAt         DateTime?
+  createdAt          DateTime         @default(now())
+
+  employee           Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSubjectId])
+  @@index([provider, providerSubjectId])
+  @@index([employeeId])
+}
+
+model Team {
+  id           String           @id @default(uuid())
+  name         String
+  createdAt    DateTime         @default(now())
+
+  employees    EmployeeTeam[]
+  submissions  ArtifactSubmission[]
+}
+
+model EmployeeTeam {
+  employeeId String
+  teamId     String
+  createdAt  DateTime @default(now())
+
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  team       Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([employeeId, teamId])
+  @@index([teamId])
+}
+
+model Project {
+  id        String        @id @default(uuid())
+  key       String        @unique
+  name      String
+  status    ProjectStatus @default(ACTIVE)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  members      ProjectMember[]
+  submissions  ArtifactSubmission[]
+}
+
+model ProjectMember {
+  employeeId String
+  projectId  String
+  createdAt  DateTime @default(now())
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  project  Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@id([employeeId, projectId])
+  @@index([projectId])
+}
+
+// ---------------------------------------------------------------------------
+// Roles & capabilities
+// ---------------------------------------------------------------------------
+
+model Role {
+  id          String           @id @default(uuid())
+  key         String           @unique
+  name        String
+  createdAt   DateTime         @default(now())
+
+  capabilities RoleCapability[]
+  employees    EmployeeRole[]
+}
+
+model RoleCapability {
+  roleId     String
+  capability Capability
+  createdAt  DateTime @default(now())
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, capability])
+  @@index([capability])
+}
+
+model EmployeeRole {
+  employeeId String
+  roleId     String
+  activeFrom DateTime @default(now())
+  activeUntil DateTime?
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  role     Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([employeeId, roleId])
+  @@index([roleId])
+}
+
+// ---------------------------------------------------------------------------
+// OAuth connections
+// ---------------------------------------------------------------------------
+
+model OAuthConnection {
+  id                   String       @id @default(uuid())
+  employeeId           String
+  provider             IdentityProvider @default(GOOGLE)
+  providerAccountId    String
+  providerEmail        String?
+  hostedDomain         String?
+  encryptedRefreshToken String?
+  accessTokenExpiresAt DateTime?
+  grantedScopes        String[]
+  status               OAuthStatus  @default(ACTIVE)
+  lastVerifiedAt       DateTime?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  employee             Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  authorizationStates  OAuthAuthorizationState[]
+
+  @@unique([provider, providerAccountId])
+  @@index([employeeId, provider])
+}
+
+model OAuthAuthorizationState {
+  id          String   @id @default(uuid())
+  employeeId  String
+  provider    IdentityProvider @default(GOOGLE)
+  state       String   @unique
+  requestedScopes String[]
+  redirectTarget String?
+  expiresAt   DateTime
+  consumedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  connection  OAuthConnection? @relation(fields: [connectionId], references: [id])
+  connectionId String?
+
+  @@index([employeeId, provider])
+}
+
+// ---------------------------------------------------------------------------
+// Conversations & messages
+// ---------------------------------------------------------------------------
+
+model Conversation {
+  id                      String                 @id @default(uuid())
+  discordGuildId          String?
+  discordParentChannelId  String?
+  discordThreadId         String?
+  initiatorEmployeeId     String?
+  conversationType        ConversationType
+  audienceClassification  AudienceClassification @default(PRIVATE)
+  memoryCaptureEnabled    Boolean                @default(true)
+  createdAt               DateTime               @default(now())
+  closedAt                DateTime?
+
+  initiator               Employee?              @relation(fields: [initiatorEmployeeId], references: [id])
+  messages                ConversationMessage[]
+  actions                 Action[]
+  reminders               Reminder[]
+  ssotProposals           SSOTProposal[]
+  auditEvents             AuditEvent[]
+
+  @@index([initiatorEmployeeId])
+  @@index([discordThreadId])
+}
+
+model ConversationMessage {
+  id                String   @id @default(uuid())
+  conversationId    String
+  employeeId        String?
+  role              String
+  content           String
+  providerMessageId String?  @unique
+  createdAt         DateTime @default(now())
+
+  conversation      Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+}
+
+model InboundEventReceipt {
+  id              String   @id @default(uuid())
+  provider        IdentityProvider
+  providerEventId String
+  kind            String
+  processedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@unique([provider, providerEventId])
+}
+
+// ---------------------------------------------------------------------------
+// Artifacts & knowledge
+// ---------------------------------------------------------------------------
+
+model Artifact {
+  id               String     @id @default(uuid())
+  type             String
+  mode             ArtifactMode
+  sourceSystem     String
+  externalId       String?
+  canonicalUrl     String?
+  originalFilename String?
+  mimeType         String?
+  syncState        SyncState  @default(NOT_REQUIRED)
+  currentVersionId String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  versions         ArtifactVersion[]
+  submissions      ArtifactSubmission[]
+  sourceAccessGrants SourceAccessGrant[]
+
+  @@unique([sourceSystem, externalId])
+  @@index([sourceSystem, externalId])
+}
+
+model ArtifactVersion {
+  id                   String   @id @default(uuid())
+  artifactId           String
+  versionNumber        Int
+  sourceVersionId      String?
+  contentHash          String
+  extractedTextObjectKey String?
+  sourceModifiedAt     DateTime?
+  effectiveFrom        DateTime?
+  effectiveUntil       DateTime?
+  createdAt            DateTime @default(now())
+
+  artifact             Artifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  chunks               KnowledgeChunk[]
+
+  @@unique([artifactId, versionNumber])
+  @@index([artifactId])
+}
+
+model ArtifactSubmission {
+  id                     String           @id @default(uuid())
+  artifactId             String
+  submittedByEmployeeId  String
+  ownerEmployeeId        String?
+  scope                  ArtifactScope
+  projectId              String?
+  teamId                 String?
+  knowledgeStatus        KnowledgeStatus
+  authorityDomain        String?
+  dataSensitivity        DataSensitivity  @default(NORMAL)
+  sourceAccessMode       String           @default("HERMES_MANAGED")
+  active                 Boolean          @default(true)
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+
+  artifact               Artifact          @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  submittedBy            Employee          @relation(fields: [submittedByEmployeeId], references: [id])
+  owner                  Employee?         @relation("SubmissionOwner", fields: [ownerEmployeeId], references: [id])
+  project                Project?          @relation(fields: [projectId], references: [id])
+  team                   Team?             @relation(fields: [teamId], references: [id])
+
+  @@index([submittedByEmployeeId, scope, active])
+  @@index([scope, active])
+  @@index([projectId])
+  @@index([teamId])
+}
+
+model SourceAccessGrant {
+  id           String             @id @default(uuid())
+  artifactId   String
+  employeeId   String
+  state        SourceAccessState  @default(UNKNOWN)
+  verifiedAt   DateTime?
+  expiresAt    DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  artifact     Artifact           @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+  employee     Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([artifactId, employeeId])
+  @@index([employeeId, state])
+}
+
+model KnowledgeChunk {
+  id                 String              @id @default(uuid())
+  sourceType         EvidenceSourceType
+  artifactVersionId  String?
+  ssotVersionId      String?
+  chunkIndex         Int
+  text               String
+  textSearchDocument String?
+  embedding          Unsupported("vector(1536)")?
+  tokenEstimate      Int
+  pageNumber         Int?
+  sheetName          String?
+  sourceLocator      String?
+  createdAt          DateTime            @default(now())
+
+  artifactVersion    ArtifactVersion?    @relation(fields: [artifactVersionId], references: [id], onDelete: Cascade)
+  ssotVersion        SSOTVersion?        @relation(fields: [ssotVersionId], references: [id], onDelete: Cascade)
+
+  @@unique([artifactVersionId, chunkIndex])
+  @@unique([ssotVersionId, chunkIndex])
+  @@index([sourceType])
+}
+
+// ---------------------------------------------------------------------------
+// Personal memory
+// ---------------------------------------------------------------------------
+
+model PersonalMemory {
+  id                   String            @id @default(uuid())
+  employeeId           String
+  type                 MemoryType
+  content              String
+  normalizedKey        String?
+  sourceConversationId String?
+  sourceMessageId      String?
+  sourceArtifactId     String?
+  confidence           Decimal           @db.Decimal(4, 3)
+  sensitivity          MemorySensitivity @default(NORMAL)
+  status               MemoryStatus      @default(ACTIVE)
+  createdAt            DateTime          @default(now())
+  lastConfirmedAt      DateTime?
+  expiresAt            DateTime?
+  deletedAt            DateTime?
+
+  employee             Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, status, type])
+}
+
+// ---------------------------------------------------------------------------
+// Authority & SSOT
+// ---------------------------------------------------------------------------
+
+model AuthorityDomain {
+  domain      String   @id
+  name        String?
+  createdAt   DateTime @default(now())
+
+  authorities DomainAuthority[]
+  ssotRecords SSOTRecord[]
+  proposals   SSOTProposal[]
+}
+
+model DomainAuthority {
+  id           String             @id @default(uuid())
+  authorityDomain String
+  employeeId   String
+  permission   AuthorityPermission
+  activeFrom   DateTime           @default(now())
+  activeUntil  DateTime?
+  createdAt    DateTime           @default(now())
+
+  domain       AuthorityDomain    @relation(fields: [authorityDomain], references: [domain])
+  employee     Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([authorityDomain, employeeId, permission])
+  @@index([employeeId])
+}
+
+model SSOTRecord {
+  id                String   @id @default(uuid())
+  authorityDomain   String
+  subjectKey        String
+  title             String
+  ownerEmployeeId   String?
+  currentVersionId  String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  domain            AuthorityDomain @relation(fields: [authorityDomain], references: [domain])
+  versions          SSOTVersion[]
+  proposals         SSOTProposal[]
+
+  @@unique([authorityDomain, subjectKey])
+  @@index([authorityDomain])
+}
+
+model SSOTVersion {
+  id                   String    @id @default(uuid())
+  ssotRecordId         String
+  versionNumber        Int
+  content              String
+  sourceArtifactId     String?
+  effectiveFrom        DateTime
+  effectiveUntil       DateTime?
+  approvedByEmployeeId String
+  approvedAt           DateTime  @default(now())
+  supersedesVersionId  String?
+  indexedAt            DateTime?
+  createdAt            DateTime  @default(now())
+
+  ssotRecord           SSOTRecord @relation(fields: [ssotRecordId], references: [id], onDelete: Cascade)
+  approvedBy           Employee   @relation(fields: [approvedByEmployeeId], references: [id])
+  supersedes           SSOTVersion? @relation("SSOTSupersedes", fields: [supersedesVersionId], references: [id])
+  supersededBy         SSOTVersion[] @relation("SSOTSupersedes")
+  chunks               KnowledgeChunk[]
+
+  @@unique([ssotRecordId, versionNumber])
+  @@index([ssotRecordId])
+}
+
+model SSOTProposal {
+  id                   String             @id @default(uuid())
+  ssotRecordId         String?
+  proposedByEmployeeId String
+  authorityDomain      String
+  title                String
+  proposedContent      String
+  reviewConversationId String?
+  status               SSOTProposalStatus @default(AWAITING_REVIEW)
+  createdAt            DateTime           @default(now())
+  resolvedAt           DateTime?
+
+  ssotRecord           SSOTRecord?        @relation(fields: [ssotRecordId], references: [id])
+  domain               AuthorityDomain    @relation(fields: [authorityDomain], references: [domain])
+  proposedBy           Employee           @relation(fields: [proposedByEmployeeId], references: [id])
+  reviewConversation   Conversation?      @relation(fields: [reviewConversationId], references: [id])
+  sources              SSOTProposalSource[]
+
+  @@index([authorityDomain, status])
+  @@index([proposedByEmployeeId])
+}
+
+model SSOTProposalSource {
+  id          String @id @default(uuid())
+  proposalId  String
+  artifactId  String
+  createdAt   DateTime @default(now())
+
+  proposal    SSOTProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@unique([proposalId, artifactId])
+}
+
+// ---------------------------------------------------------------------------
+// Actions
+// ---------------------------------------------------------------------------
+
+model Action {
+  id                   String       @id @default(uuid())
+  employeeId           String
+  conversationId       String?
+  type                 ActionType
+  provider             String?
+  riskLevel            ActionRiskLevel @default(LOW)
+  parametersJson       Json
+  status               ActionStatus @default(PROPOSED)
+  confirmationRequired Boolean      @default(false)
+  idempotencyKey       String       @unique
+  externalResourceId   String?
+  externalResultJson   Json?
+  errorCode            String?
+  createdAt            DateTime     @default(now())
+  executedAt           DateTime?
+  reconciledAt         DateTime?
+  updatedAt            DateTime     @updatedAt
+
+  employee             Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  conversation         Conversation?      @relation(fields: [conversationId], references: [id])
+  confirmations        ActionConfirmation[]
+
+  @@index([employeeId, status])
+  @@index([status])
+}
+
+model ActionConfirmation {
+  id                    String   @id @default(uuid())
+  actionId              String
+  employeeId            String
+  confirmationType      String   @default("DISCORD_BUTTON")
+  confirmedParametersHash String
+  confirmedAt           DateTime @default(now())
+
+  action                Action   @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  employee              Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([actionId])
+}
+
+// ---------------------------------------------------------------------------
+// Reminders
+// ---------------------------------------------------------------------------
+
+model Reminder {
+  id              String         @id @default(uuid())
+  employeeId      String
+  conversationId  String?
+  text            String
+  dueAt           DateTime
+  timezone        String
+  status          ReminderStatus @default(OPEN)
+  createdAt       DateTime       @default(now())
+  completedAt     DateTime?
+
+  employee        Employee       @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  conversation    Conversation?  @relation(fields: [conversationId], references: [id])
+
+  @@index([employeeId, status])
+  @@index([status, dueAt])
+}
+
+// ---------------------------------------------------------------------------
+// Audit & feature flags
+// ---------------------------------------------------------------------------
+
+model AuditEvent {
+  id            String   @id @default(uuid())
+  type          String
+  employeeId    String?
+  conversationId String?
+  resourceType  String?
+  resourceId    String?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  employee      Employee? @relation(fields: [employeeId], references: [id])
+  conversation  Conversation? @relation(fields: [conversationId], references: [id])
+
+  @@index([createdAt, type])
+  @@index([employeeId])
+  @@index([conversationId])
+}
+
+model FeatureFlag {
+  key       String   @id
+  enabled   Boolean  @default(false)
+  updatedAt DateTime @updatedAt
+  updatedBy String?
 }
