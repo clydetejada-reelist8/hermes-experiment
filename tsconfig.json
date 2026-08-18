@@ -16,6 +16,7 @@
     { "path": "packages/observability" },
     { "path": "apps/api" },
     { "path": "apps/discord" },
-    { "path": "apps/worker" }
+    { "path": "apps/worker" },
+    { "path": "scripts" }
   ]
 }

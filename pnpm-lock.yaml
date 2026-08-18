@@ -69,7 +69,14 @@ importers:
 
   packages/google: {}
 
-  packages/identity: {}
+  packages/identity:
+    dependencies:
+      "@hermes/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+      "@hermes/db":
+        specifier: workspace:*
+        version: link:../db
 
   packages/knowledge: {}
 
@@ -82,6 +89,18 @@ importers:
   packages/policy: {}
 
   packages/ssot: {}
+
+  scripts:
+    dependencies:
+      "@hermes/config":
+        specifier: workspace:*
+        version: link:../packages/config
+      "@hermes/contracts":
+        specifier: workspace:*
+        version: link:../packages/contracts
+      "@hermes/db":
+        specifier: workspace:*
+        version: link:../packages/db
 
 packages:
   "@esbuild/aix-ppc64@0.21.5":

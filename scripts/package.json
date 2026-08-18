@@ -1,21 +1,14 @@
 {
-  "name": "@hermes/identity",
+  "name": "@hermes/scripts",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    }
-  },
   "scripts": {
     "build": "tsc -b tsconfig.json",
     "typecheck": "tsc -b tsconfig.json"
   },
   "dependencies": {
+    "@hermes/config": "workspace:*",
     "@hermes/contracts": "workspace:*",
     "@hermes/db": "workspace:*"
   }
