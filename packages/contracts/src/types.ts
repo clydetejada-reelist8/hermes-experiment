@@ -22,7 +22,8 @@ export type PolicyReasonCode =
   | "SOURCE_ACCESS_DENIED"
   | "AUDIENCE_DENIED"
   | "SENSITIVITY_DENIED"
-  | "FEATURE_DISABLED";
+  | "FEATURE_DISABLED"
+  | "RECIPIENT_NOT_ALLOWLISTED";
 
 export interface PolicyDecision {
   allowed: boolean;

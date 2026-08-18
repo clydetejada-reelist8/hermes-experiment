@@ -1,5 +1,5 @@
 import { db } from "@hermes/db";
-import type { ArtifactScope, Capability, PolicyDecision } from "@hermes/contracts";
+import type { ActionType, ArtifactScope, Capability, PolicyDecision } from "@hermes/contracts";
 import { allow, deny } from "@hermes/contracts";
 
 export type { PolicyDecision } from "@hermes/contracts";
@@ -128,5 +128,88 @@ export async function evaluateHermesScope(req: ScopeRequest): Promise<PolicyDeci
 
     default:
       return deny("AUDIENCE_DENIED");
+  }
+}
+
+/**
+ * Map an action type to the capability required to prepare/execute it.
+ */
+const ACTION_CAPABILITY: Record<ActionType, Capability> = {
+  GMAIL_CREATE_DRAFT: "GMAIL_DRAFT",
+  GMAIL_UPDATE_DRAFT: "GMAIL_DRAFT",
+  GMAIL_SEND_DRAFT: "GMAIL_SEND",
+  CALENDAR_FREEBUSY: "CALENDAR_FREEBUSY",
+  CALENDAR_CREATE_PERSONAL_EVENT: "CALENDAR_CREATE_PERSONAL_EVENT",
+  CALENDAR_CREATE_MEETING: "CALENDAR_INVITE_OTHERS",
+  CALENDAR_UPDATE_EVENT: "CALENDAR_UPDATE_EVENT",
+  CALENDAR_CANCEL_EVENT: "CALENDAR_CANCEL_EVENT",
+  REMINDER_CREATE: "MEMORY_WRITE_OWN",
+  REMINDER_COMPLETE: "MEMORY_WRITE_OWN",
+  REMINDER_DELETE: "MEMORY_WRITE_OWN",
+};
+
+/**
+ * Check whether an employee can prepare an action of the given type. This is a
+ * capability check: the employee must hold the capability mapped to the action
+ * type (and be an active, allowlisted employee).
+ */
+export async function canPrepareAction(
+  employeeId: string,
+  actionType: ActionType,
+): Promise<PolicyDecision> {
+  const capability = ACTION_CAPABILITY[actionType];
+  return evaluateCapability(employeeId, capability);
+}
+
+/**
+ * Check whether an employee can execute an action of the given type with the
+ * supplied parameters. Calls {@link canPrepareAction} first, then applies
+ * parameter-specific checks (e.g. recipient allowlist for GMAIL_SEND_DRAFT).
+ */
+export async function canExecuteAction(
+  employeeId: string,
+  actionType: ActionType,
+  parameters: Record<string, unknown>,
+): Promise<PolicyDecision> {
+  const base = await canPrepareAction(employeeId, actionType);
+  if (!base.allowed) return base;
+
+  if (actionType === "GMAIL_SEND_DRAFT") {
+    const allowlistRaw = process.env.STAGING_EMAIL_RECIPIENT_ALLOWLIST;
+    if (allowlistRaw) {
+      const allowlist = new Set(
+        allowlistRaw
+          .split(",")
+          .map((email) => email.trim().toLowerCase())
+          .filter(Boolean),
+      );
+      const to = typeof parameters.to === "string" ? parameters.to : "";
+      const recipient = to.trim().toLowerCase();
+      if (recipient && !allowlist.has(recipient)) {
+        return deny("RECIPIENT_NOT_ALLOWLISTED");
+      }
+    }
+  }
+
+  return allow();
+}
+
+/**
+ * Deterministically determine whether an action type (with optional
+ * parameters) requires human confirmation before execution. The model cannot
+ * override this.
+ */
+export function requiresConfirmation(
+  actionType: ActionType,
+  _parameters?: Record<string, unknown>,
+): boolean {
+  switch (actionType) {
+    case "GMAIL_SEND_DRAFT":
+    case "CALENDAR_CREATE_MEETING":
+    case "CALENDAR_CANCEL_EVENT":
+    case "CALENDAR_UPDATE_EVENT":
+      return true;
+    default:
+      return false;
   }
 }

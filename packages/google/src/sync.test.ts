@@ -92,13 +92,13 @@ describe("source sync and revalidation", () => {
   it("revokes all expired connections", async () => {
     const emp = await createEmployee();
     const conn = await setupConnection(emp.id);
-    // Mark as expired by setting a past expiry
+    // Mark as stale by setting lastVerifiedAt to 45 days ago (past the 30-day grace period)
     await db.oAuthConnection.update({
       where: { id: conn.id },
-      data: { accessTokenExpiresAt: new Date(Date.now() - 3600_000) },
+      data: { lastVerifiedAt: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000) },
     });
 
-    const count = await revokeExpiredConnections();
+    const count = await revokeExpiredConnections(30);
     expect(count).toBeGreaterThanOrEqual(1);
 
     const updated = await db.oAuthConnection.findUnique({ where: { id: conn.id } });
@@ -110,10 +110,13 @@ describe("source sync and revalidation", () => {
     const conn = await setupConnection(emp.id);
     await db.oAuthConnection.update({
       where: { id: conn.id },
-      data: { status: "REVOKED", accessTokenExpiresAt: new Date(Date.now() - 3600_000) },
+      data: {
+        status: "REVOKED",
+        lastVerifiedAt: new Date(Date.now() - 45 * 24 * 60 * 60 * 1000),
+      },
     });
 
-    await revokeExpiredConnections();
+    await revokeExpiredConnections(30);
     // The already-revoked connection should not be counted again
     const updated = await db.oAuthConnection.findUnique({ where: { id: conn.id } });
     expect(updated?.status).toBe("REVOKED");

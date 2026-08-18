@@ -184,5 +184,8 @@ export const AuditEventTypeEnum = [
   "ACTION_EXECUTED",
   "ACTION_FAILED",
   "FEATURE_FLAG_CHANGED",
+  "REMINDER_TRIGGERED",
+  "OAUTH_CLEANUP",
+  "RETENTION_APPLIED",
 ] as const;
 export type AuditEventType = (typeof AuditEventTypeEnum)[number];

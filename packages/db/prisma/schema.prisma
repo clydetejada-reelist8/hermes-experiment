@@ -648,6 +648,7 @@ model SSOTProposal {
   title                String
   proposedContent      String
   reviewConversationId String?
+  reviewThreadId       String?
   status               SSOTProposalStatus @default(AWAITING_REVIEW)
   createdAt            DateTime           @default(now())
   resolvedAt           DateTime?

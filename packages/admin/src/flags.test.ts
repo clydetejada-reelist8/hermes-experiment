@@ -15,8 +15,16 @@ import {
 import { createEmployee } from "../../../test/fixtures/db-helpers.js";
 
 beforeEach(async () => {
-  // Clean up feature flags between tests
-  await db.featureFlag.deleteMany({});
+  // Clean up only test-specific feature flags between tests.
+  // Do NOT delete all flags — other test files depend on flags like
+  // ask_enabled, ssot_enabled, kill_switch.global being set.
+  await db.featureFlag.deleteMany({
+    where: {
+      key: {
+        in: ["gmail_actions", "new_feature", "flag_a", "flag_b", "updatable", "kill_switch.global"],
+      },
+    },
+  });
 });
 
 describe("feature flags", () => {

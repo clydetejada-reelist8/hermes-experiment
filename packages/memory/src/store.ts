@@ -14,6 +14,13 @@ export interface AddMemoryInput {
   sourceArtifactId?: string;
   sensitivity?: MemorySensitivity;
   confidence?: number;
+  /**
+   * Whether this memory is being auto-persisted by the system (true) or
+   * explicitly written by the employee (false). Auto-persisted memories
+   * are restricted to NORMAL sensitivity and non-PERSONAL_NOTE types
+   * (Section 11.5). PERSONAL_NOTE memories are explicit-write only.
+   */
+  autoPersisted?: boolean;
 }
 
 /**
@@ -21,10 +28,30 @@ export interface AddMemoryInput {
  * auto-classified using deterministic rules unless explicitly provided.
  * HIGHLY_SENSITIVE memories are created with status ACTIVE but are filtered
  * out by getVisibleMemories (the retrieval layer checks sensitivity).
+ *
+ * Staging memory write policy (Section 11.5):
+ *   - Auto-persisted memories are restricted to NORMAL sensitivity. If the
+ *     auto-classified sensitivity is SENSITIVE or HIGHLY_SENSITIVE, the
+ *     memory is NOT persisted (the call returns null).
+ *   - PERSONAL_NOTE memories are explicit-write only — they cannot be
+ *     auto-persisted.
  */
-export async function addMemory(input: AddMemoryInput): Promise<PersonalMemory> {
+export async function addMemory(input: AddMemoryInput): Promise<PersonalMemory | null> {
   const sensitivity = input.sensitivity ?? classifySensitivity(input.content);
   const confidence = input.confidence ?? 1.0;
+  const autoPersisted = input.autoPersisted ?? false;
+
+  // Enforce the staging memory write policy for auto-persisted memories.
+  if (autoPersisted) {
+    // Auto-persisted memories must be NORMAL sensitivity.
+    if (sensitivity !== "NORMAL") {
+      return null;
+    }
+    // PERSONAL_NOTE memories are explicit-write only.
+    if (input.type === "PERSONAL_NOTE") {
+      return null;
+    }
+  }
 
   return db.personalMemory.create({
     data: {

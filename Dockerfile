@@ -32,7 +32,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm prisma generate
 RUN pnpm typecheck
-RUN pnpm build || true
+RUN pnpm build
 
 # ---------------------------------------------------------------------------
 # Stage 3: Production image

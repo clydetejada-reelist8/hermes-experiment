@@ -85,6 +85,8 @@ export interface SaveConnectionInput {
 /**
  * Save (upsert) a Google OAuth connection for an employee. The refresh token
  * must already be encrypted via `encryptToken` before calling this function.
+ * The `key` parameter is accepted for API symmetry with `encryptToken` but
+ * is not used here — the token is already encrypted.
  */
 export async function saveConnection(input: SaveConnectionInput): Promise<OAuthConnection> {
   return db.oAuthConnection.upsert({

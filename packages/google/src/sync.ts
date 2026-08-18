@@ -73,16 +73,21 @@ export async function getStaleConnections(thresholdDays: number): Promise<OAuthC
 }
 
 /**
- * Revoke all connections with expired access tokens. This is a cleanup
- * operation that runs periodically to remove stale connections.
+ * Revoke all connections with expired access tokens AND that have not been
+ * verified recently (past the grace period). Access tokens expire frequently
+ * and are normally refreshed via the refresh token — an expired access token
+ * alone is NOT a reason to revoke. We only revoke when the connection hasn't
+ * been verified in the last `gracePeriodDays` days, indicating the refresh
+ * token is likely also invalid.
  *
  * Returns the number of connections revoked.
  */
-export async function revokeExpiredConnections(): Promise<number> {
+export async function revokeExpiredConnections(gracePeriodDays = 30): Promise<number> {
+  const threshold = new Date(Date.now() - gracePeriodDays * 24 * 60 * 60 * 1000);
   const result = await db.oAuthConnection.updateMany({
     where: {
       status: "ACTIVE",
-      accessTokenExpiresAt: { lt: new Date() },
+      lastVerifiedAt: { lt: threshold },
     },
     data: { status: "REVOKED" },
   });

@@ -1,8 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
+import { db } from "@hermes/db";
 import { CalendarActionExecutor, type CalendarProvider } from "./calendar.js";
 import { transitionAction } from "./state-machine.js";
+import { recordConfirmation } from "./confirmation.js";
 import { createEmployee } from "../../../test/fixtures/db-helpers.js";
+
+async function enableCalendarWriteFlag(): Promise<void> {
+  await db.featureFlag.upsert({
+    where: { key: "calendar_write_enabled" },
+    create: { key: "calendar_write_enabled", enabled: true, updatedBy: "test" },
+    update: { enabled: true, updatedBy: "test" },
+  });
+}
+
+async function disableKillSwitch(): Promise<void> {
+  await db.featureFlag.upsert({
+    where: { key: "kill_switch.global" },
+    create: { key: "kill_switch.global", enabled: false, updatedBy: "test" },
+    update: { enabled: false, updatedBy: "test" },
+  });
+}
 
 class MockCalendarProvider implements CalendarProvider {
   events: Map<
@@ -28,6 +46,7 @@ class MockCalendarProvider implements CalendarProvider {
     start: string;
     end: string;
     attendees?: string[];
+    requestId: string;
   }): Promise<{ eventId: string }> {
     const eventId = `evt-${randomUUID()}`;
     this.events.set(eventId, {
@@ -41,7 +60,7 @@ class MockCalendarProvider implements CalendarProvider {
 
   async updateEvent(
     eventId: string,
-    params: { summary?: string; start?: string; end?: string },
+    params: { summary?: string; start?: string; end?: string; requestId: string },
   ): Promise<{ eventId: string }> {
     const existing = this.events.get(eventId);
     if (existing) {
@@ -55,7 +74,7 @@ class MockCalendarProvider implements CalendarProvider {
     return { eventId };
   }
 
-  async cancelEvent(eventId: string): Promise<{ cancelled: boolean }> {
+  async cancelEvent(eventId: string, _requestId: string): Promise<{ cancelled: boolean }> {
     this.events.delete(eventId);
     return { cancelled: true };
   }
@@ -115,6 +134,30 @@ describe("CalendarActionExecutor", () => {
   });
 
   it("executes meeting creation after confirmation", async () => {
+    await enableCalendarWriteFlag();
+    await disableKillSwitch();
+    const emp = await createEmployee();
+    const executor = new CalendarActionExecutor(new MockCalendarProvider());
+
+    const action = await executor.createMeetingAction({
+      employeeId: emp.id,
+      idempotencyKey: randomUUID(),
+      summary: "Team sync",
+      start: "2024-01-01T14:00:00Z",
+      end: "2024-01-01T15:00:00Z",
+      attendees: ["a@example.com"],
+    });
+
+    // Record a valid confirmation
+    await recordConfirmation(action.id, emp.id, action.parametersJson as Record<string, unknown>);
+    await transitionAction(action.id, "EXECUTING");
+    const result = await executor.executeCreateMeeting(action.id);
+
+    expect(result.status).toBe("SUCCEEDED");
+    expect(result.externalResourceId).toBeTruthy();
+  });
+
+  it("blocks meeting execution without confirmation", async () => {
     const emp = await createEmployee();
     const executor = new CalendarActionExecutor(new MockCalendarProvider());
 
@@ -128,13 +171,10 @@ describe("CalendarActionExecutor", () => {
     });
 
     await transitionAction(action.id, "EXECUTING");
-    const result = await executor.executeCreateMeeting(action.id);
-
-    expect(result.status).toBe("SUCCEEDED");
-    expect(result.externalResourceId).toBeTruthy();
+    await expect(executor.executeCreateMeeting(action.id)).rejects.toThrow();
   });
 
-  it("updates an event", async () => {
+  it("updates a personal event (no attendees → no confirmation)", async () => {
     const emp = await createEmployee();
     const executor = new CalendarActionExecutor(new MockCalendarProvider());
 
@@ -148,6 +188,7 @@ describe("CalendarActionExecutor", () => {
 
     const updateAction = await executor.updateEventAction({
       actionId: createAction.id,
+      idempotencyKey: randomUUID(),
       summary: "Updated summary",
     });
 
@@ -155,7 +196,7 @@ describe("CalendarActionExecutor", () => {
     expect(updateAction.status).toBe("SUCCEEDED");
   });
 
-  it("cancels an event", async () => {
+  it("cancel event requires confirmation", async () => {
     const emp = await createEmployee();
     const executor = new CalendarActionExecutor(new MockCalendarProvider());
 
@@ -169,9 +210,41 @@ describe("CalendarActionExecutor", () => {
 
     const cancelAction = await executor.cancelEventAction({
       actionId: createAction.id,
+      idempotencyKey: randomUUID(),
     });
 
     expect(cancelAction.type).toBe("CALENDAR_CANCEL_EVENT");
-    expect(cancelAction.status).toBe("SUCCEEDED");
+    expect(cancelAction.status).toBe("AWAITING_CONFIRMATION");
+    expect(cancelAction.confirmationRequired).toBe(true);
+  });
+
+  it("executes cancel after confirmation", async () => {
+    await enableCalendarWriteFlag();
+    await disableKillSwitch();
+    const emp = await createEmployee();
+    const executor = new CalendarActionExecutor(new MockCalendarProvider());
+
+    const createAction = await executor.createPersonalEventAction({
+      employeeId: emp.id,
+      idempotencyKey: randomUUID(),
+      summary: "To be cancelled",
+      start: "2024-01-01T14:00:00Z",
+      end: "2024-01-01T15:00:00Z",
+    });
+
+    const cancelAction = await executor.cancelEventAction({
+      actionId: createAction.id,
+      idempotencyKey: randomUUID(),
+    });
+
+    await recordConfirmation(
+      cancelAction.id,
+      emp.id,
+      cancelAction.parametersJson as Record<string, unknown>,
+    );
+    await transitionAction(cancelAction.id, "EXECUTING");
+    const result = await executor.executeCancelEvent(cancelAction.id);
+
+    expect(result.status).toBe("SUCCEEDED");
   });
 });

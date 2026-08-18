@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import { validateCitations } from "./citations.js";
 import type { RetrievalResult } from "@hermes/knowledge";
 
@@ -17,25 +18,31 @@ function makeChunk(id: string, text: string): RetrievalResult {
   };
 }
 
+// Use realistic UUID-format chunk IDs since the citation pattern matches UUIDs.
+const c1 = randomUUID();
+const c2 = randomUUID();
+const c3 = randomUUID();
+const fakeId = randomUUID();
+
 describe("validateCitations", () => {
   it("passes when all citations reference chunks in the context", () => {
-    const chunks = [makeChunk("c1", "Q3 revenue was $1.2M.")];
-    const answer = "The Q3 revenue was $1.2M [c1].";
+    const chunks = [makeChunk(c1, "Q3 revenue was $1.2M.")];
+    const answer = `The Q3 revenue was $1.2M [${c1}].`;
     const result = validateCitations(answer, chunks);
     expect(result.valid).toBe(true);
     expect(result.unsupportedCitations).toEqual([]);
   });
 
   it("fails when a citation references a chunk not in the context", () => {
-    const chunks = [makeChunk("c1", "Q3 revenue was $1.2M.")];
-    const answer = "The revenue was $1.2M [c1] and Q4 was $2M [c2].";
+    const chunks = [makeChunk(c1, "Q3 revenue was $1.2M.")];
+    const answer = `The revenue was $1.2M [${c1}] and Q4 was $2M [${fakeId}].`;
     const result = validateCitations(answer, chunks);
     expect(result.valid).toBe(false);
-    expect(result.unsupportedCitations).toContain("c2");
+    expect(result.unsupportedCitations).toContain(fakeId);
   });
 
   it("fails when the answer has no citations at all", () => {
-    const chunks = [makeChunk("c1", "Q3 revenue was $1.2M.")];
+    const chunks = [makeChunk(c1, "Q3 revenue was $1.2M.")];
     const answer = "The Q3 revenue was $1.2M.";
     const result = validateCitations(answer, chunks);
     expect(result.valid).toBe(false);
@@ -43,16 +50,24 @@ describe("validateCitations", () => {
   });
 
   it("passes when answer has citations and all are supported", () => {
-    const chunks = [makeChunk("c1", "Revenue $1.2M."), makeChunk("c2", "Q4 was $2M.")];
-    const answer = "Q3 was $1.2M [c1] and Q4 was $2M [c2].";
+    const chunks = [makeChunk(c1, "Revenue $1.2M."), makeChunk(c2, "Q4 was $2M.")];
+    const answer = `Q3 was $1.2M [${c1}] and Q4 was $2M [${c2}].`;
     const result = validateCitations(answer, chunks);
     expect(result.valid).toBe(true);
   });
 
   it("extracts all citation IDs from the answer", () => {
-    const chunks = [makeChunk("c1", "a"), makeChunk("c2", "b"), makeChunk("c3", "c")];
-    const answer = "Fact A [c1]. Fact B [c2]. Fact C [c3].";
+    const chunks = [makeChunk(c1, "a"), makeChunk(c2, "b"), makeChunk(c3, "c")];
+    const answer = `Fact A [${c1}]. Fact B [${c2}]. Fact C [${c3}].`;
     const result = validateCitations(answer, chunks);
-    expect(result.citedIds).toEqual(["c1", "c2", "c3"]);
+    expect(result.citedIds).toEqual([c1, c2, c3]);
+  });
+
+  it("does not match non-UUID bracketed text as citations", () => {
+    const chunks = [makeChunk(c1, "Revenue $1.2M.")];
+    const answer = `The revenue was $1.2M [${c1}]. [Note: this is a note, not a citation.]`;
+    const result = validateCitations(answer, chunks);
+    expect(result.valid).toBe(true);
+    expect(result.citedIds).toEqual([c1]);
   });
 });

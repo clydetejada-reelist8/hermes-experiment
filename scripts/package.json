@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b tsconfig.json",
-    "typecheck": "tsc -b tsconfig.json"
+    "typecheck": "tsc -b tsconfig.json",
+    "register-discord-commands": "tsx scripts/register-discord-commands.ts"
   },
   "dependencies": {
     "@hermes/config": "workspace:*",
@@ -13,6 +14,7 @@
     "@hermes/db": "workspace:*",
     "@hermes/llm": "workspace:*",
     "@hermes/actions": "workspace:*",
-    "@hermes/admin": "workspace:*"
+    "@hermes/admin": "workspace:*",
+    "discord.js": "^14.16.3"
   }
 }

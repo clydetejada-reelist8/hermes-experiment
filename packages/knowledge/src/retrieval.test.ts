@@ -38,6 +38,48 @@ async function setupArtifactWithContent(content: string) {
   return { artifact, version };
 }
 
+async function setupLinkedArtifactWithContent(
+  content: string,
+  syncState: "SYNCED" | "PENDING" | "AUTH_REQUIRED" = "SYNCED",
+) {
+  const artifact = await db.artifact.create({
+    data: {
+      type: "TEXT",
+      mode: "LINKED",
+      sourceSystem: "GOOGLE_DRIVE",
+      externalId: randomUUID(),
+      syncState,
+    },
+  });
+  const version = await db.artifactVersion.create({
+    data: { artifactId: artifact.id, versionNumber: 1, contentHash: randomUUID() },
+  });
+  await indexArtifactVersion({
+    artifactVersionId: version.id,
+    text: content,
+    embeddingFn: new MockEmbeddingFn(),
+    chunkOptions: { maxTokens: 500, overlapTokens: 50 },
+  });
+  return { artifact, version };
+}
+
+async function createSourceAccessGrant(
+  employeeId: string,
+  artifactId: string,
+  state: "ALLOWED" | "DENIED" | "ERROR" | "UNKNOWN",
+  expiresAt: Date | null = null,
+) {
+  return db.sourceAccessGrant.create({
+    data: {
+      employeeId,
+      artifactId,
+      state,
+      verifiedAt: new Date(),
+      expiresAt,
+    },
+  });
+}
+
 describe("hybridRetrieve", () => {
   it("returns chunks from artifacts the employee owns (PERSONAL)", async () => {
     const emp = await createEmployee();
@@ -159,5 +201,153 @@ describe("hybridRetrieve", () => {
     });
 
     expect(results.some((r) => r.text.includes("holiday"))).toBe(true);
+  });
+});
+
+describe("hybridRetrieve - LINKED source access revalidation", () => {
+  it("includes LINKED artifact with ALLOWED source access grant and SYNCED state", async () => {
+    const emp = await createEmployee();
+    const { artifact } = await setupLinkedArtifactWithContent("Linked sales forecast data.");
+    await createSubmission({
+      artifactId: artifact.id,
+      submittedByEmployeeId: emp.id,
+      scope: "PERSONAL",
+      ownerEmployeeId: emp.id,
+      knowledgeStatus: "PERSONAL_CONTEXT",
+      dataSensitivity: "NORMAL",
+    });
+    await createSourceAccessGrant(emp.id, artifact.id, "ALLOWED");
+
+    const results = await hybridRetrieve({
+      employeeId: emp.id,
+      query: "sales forecast",
+      queryEmbedding: await new MockEmbeddingFn().embed("sales forecast"),
+      limit: 50,
+      embeddingFn: new MockEmbeddingFn(),
+    });
+
+    expect(results.some((r) => r.text.includes("sales forecast"))).toBe(true);
+  });
+
+  it("excludes LINKED artifact with DENIED source access grant", async () => {
+    const emp = await createEmployee();
+    const { artifact } = await setupLinkedArtifactWithContent("Linked denied forecast data.");
+    await createSubmission({
+      artifactId: artifact.id,
+      submittedByEmployeeId: emp.id,
+      scope: "PERSONAL",
+      ownerEmployeeId: emp.id,
+      knowledgeStatus: "PERSONAL_CONTEXT",
+      dataSensitivity: "NORMAL",
+    });
+    await createSourceAccessGrant(emp.id, artifact.id, "DENIED");
+
+    const results = await hybridRetrieve({
+      employeeId: emp.id,
+      query: "denied forecast",
+      queryEmbedding: await new MockEmbeddingFn().embed("denied forecast"),
+      limit: 50,
+      embeddingFn: new MockEmbeddingFn(),
+    });
+
+    expect(results.every((r) => !r.text.includes("denied forecast"))).toBe(true);
+  });
+
+  it("excludes LINKED artifact with no source access grant", async () => {
+    const emp = await createEmployee();
+    const { artifact } = await setupLinkedArtifactWithContent("Linked no-grant forecast data.");
+    await createSubmission({
+      artifactId: artifact.id,
+      submittedByEmployeeId: emp.id,
+      scope: "PERSONAL",
+      ownerEmployeeId: emp.id,
+      knowledgeStatus: "PERSONAL_CONTEXT",
+      dataSensitivity: "NORMAL",
+    });
+    // No SourceAccessGrant created.
+
+    const results = await hybridRetrieve({
+      employeeId: emp.id,
+      query: "no-grant forecast",
+      queryEmbedding: await new MockEmbeddingFn().embed("no-grant forecast"),
+      limit: 50,
+      embeddingFn: new MockEmbeddingFn(),
+    });
+
+    expect(results.every((r) => !r.text.includes("no-grant forecast"))).toBe(true);
+  });
+
+  it("excludes LINKED artifact with expired source access grant", async () => {
+    const emp = await createEmployee();
+    const { artifact } = await setupLinkedArtifactWithContent("Linked expired forecast data.");
+    await createSubmission({
+      artifactId: artifact.id,
+      submittedByEmployeeId: emp.id,
+      scope: "PERSONAL",
+      ownerEmployeeId: emp.id,
+      knowledgeStatus: "PERSONAL_CONTEXT",
+      dataSensitivity: "NORMAL",
+    });
+    await createSourceAccessGrant(emp.id, artifact.id, "ALLOWED", new Date(Date.now() - 1000));
+
+    const results = await hybridRetrieve({
+      employeeId: emp.id,
+      query: "expired forecast",
+      queryEmbedding: await new MockEmbeddingFn().embed("expired forecast"),
+      limit: 50,
+      embeddingFn: new MockEmbeddingFn(),
+    });
+
+    expect(results.every((r) => !r.text.includes("expired forecast"))).toBe(true);
+  });
+
+  it("includes IMPORTED artifact regardless of source access grants", async () => {
+    const emp = await createEmployee();
+    const { artifact } = await setupArtifactWithContent("Imported company policy doc.");
+    await createSubmission({
+      artifactId: artifact.id,
+      submittedByEmployeeId: emp.id,
+      scope: "COMPANY",
+      knowledgeStatus: "REFERENCE",
+      dataSensitivity: "NORMAL",
+    });
+    // No SourceAccessGrant — should not matter for IMPORTED artifacts.
+
+    const results = await hybridRetrieve({
+      employeeId: emp.id,
+      query: "company policy",
+      queryEmbedding: await new MockEmbeddingFn().embed("company policy"),
+      limit: 50,
+      embeddingFn: new MockEmbeddingFn(),
+    });
+
+    expect(results.some((r) => r.text.includes("company policy"))).toBe(true);
+  });
+
+  it("excludes LINKED artifact with ALLOWED grant but non-SYNCED state", async () => {
+    const emp = await createEmployee();
+    const { artifact } = await setupLinkedArtifactWithContent(
+      "Linked pending forecast data.",
+      "PENDING",
+    );
+    await createSubmission({
+      artifactId: artifact.id,
+      submittedByEmployeeId: emp.id,
+      scope: "PERSONAL",
+      ownerEmployeeId: emp.id,
+      knowledgeStatus: "PERSONAL_CONTEXT",
+      dataSensitivity: "NORMAL",
+    });
+    await createSourceAccessGrant(emp.id, artifact.id, "ALLOWED");
+
+    const results = await hybridRetrieve({
+      employeeId: emp.id,
+      query: "pending forecast",
+      queryEmbedding: await new MockEmbeddingFn().embed("pending forecast"),
+      limit: 50,
+      embeddingFn: new MockEmbeddingFn(),
+    });
+
+    expect(results.every((r) => !r.text.includes("pending forecast"))).toBe(true);
   });
 });

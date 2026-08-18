@@ -24,7 +24,7 @@ const ACTION_RISK: Record<ActionType, { risk: ActionRiskLevel; confirmation: boo
   CALENDAR_CREATE_PERSONAL_EVENT: { risk: "MEDIUM", confirmation: false },
   CALENDAR_CREATE_MEETING: { risk: "HIGH", confirmation: true },
   CALENDAR_UPDATE_EVENT: { risk: "LOW", confirmation: false },
-  CALENDAR_CANCEL_EVENT: { risk: "MEDIUM", confirmation: false },
+  CALENDAR_CANCEL_EVENT: { risk: "MEDIUM", confirmation: true },
   REMINDER_CREATE: { risk: "LOW", confirmation: false },
   REMINDER_COMPLETE: { risk: "LOW", confirmation: false },
   REMINDER_DELETE: { risk: "LOW", confirmation: false },
