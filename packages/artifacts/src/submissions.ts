@@ -70,6 +70,13 @@ export interface CreateSubmissionInput {
  * submissions have a teamId.
  */
 export async function createSubmission(input: CreateSubmissionInput): Promise<ArtifactSubmission> {
+  if (input.scope === "PROJECT" && !input.projectId) {
+    throw new Error("PROJECT submissions require projectId");
+  }
+  if (input.scope === "TEAM" && !input.teamId) {
+    throw new Error("TEAM submissions require teamId");
+  }
+
   return db.artifactSubmission.create({
     data: {
       artifactId: input.artifactId,

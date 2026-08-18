@@ -36,15 +36,6 @@ jobs:
           --health-timeout 5s
           --health-retries 10
 
-      minio:
-        image: minio/minio:latest
-        ports:
-          - 9000:9000
-        env:
-          MINIO_ROOT_USER: hermes
-          MINIO_ROOT_PASSWORD: hermes-staging
-        options: --health-cmd "mc ready local" --health-interval 5s --health-timeout 5s --health-retries 10
-
     env:
       DATABASE_URL: postgresql://hermes:hermes@localhost:5432/hermes_staging
       REDIS_URL: redis://localhost:6379
@@ -64,7 +55,7 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 10.12.1
 
       - uses: actions/setup-node@v4
         with:
@@ -77,8 +68,30 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @hermes/db exec prisma generate
 
+      - name: Enable pgvector
+        run: psql "$DATABASE_URL" -c 'CREATE EXTENSION IF NOT EXISTS vector;'
+
       - name: Push database schema
-        run: pnpm --filter @hermes/db exec prisma db push --force-reset
+        run: pnpm --filter @hermes/db exec prisma db push --accept-data-loss
+
+      - name: Apply database integrity constraints
+        run: psql "$DATABASE_URL" -f packages/db/prisma/integrity-constraints.sql
+
+      - name: Start MinIO
+        run: |
+          docker run --detach --name hermes-minio \
+            --publish 9000:9000 \
+            --env MINIO_ROOT_USER=hermes \
+            --env MINIO_ROOT_PASSWORD=hermes-staging \
+            minio/minio:latest server /data
+          for attempt in {1..30}; do
+            if curl --fail --silent http://localhost:9000/minio/health/live >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs hermes-minio
+          exit 1
 
       - name: Format check
         run: pnpm format:check

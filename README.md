@@ -22,9 +22,10 @@ knowledge, actions, LLM integration, audit, and observability.
 ## Stack
 
 TypeScript, Node.js >= 22, pnpm workspaces, Fastify, Prisma, PostgreSQL >= 16
-+ pgvector, Zod, Pino, and Vitest. The initial Control Plane search path uses
-PostgreSQL full-text search and does not require an OpenAI API key or paid
-embedding service. Hermes owns model inference.
+
+- pgvector, Zod, Pino, and Vitest. The initial Control Plane search path uses
+  PostgreSQL full-text search and does not require an OpenAI API key or paid
+  embedding service. Hermes owns model inference.
 
 ## Hermes integration boundary
 
