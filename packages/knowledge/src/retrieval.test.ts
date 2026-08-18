@@ -55,7 +55,7 @@ describe("hybridRetrieve", () => {
       employeeId: emp.id,
       query: "sales process",
       queryEmbedding: await new MockEmbeddingFn().embed("sales process"),
-      limit: 10,
+      limit: 50,
       embeddingFn: new MockEmbeddingFn(),
     });
 

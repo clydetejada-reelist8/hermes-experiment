@@ -51,14 +51,27 @@ export async function hybridRetrieve(input: HybridRetrieveInput): Promise<Retrie
   const projectIds = projectMemberships.map((p: { projectId: string }) => p.projectId);
   const queryVector = `[${input.queryEmbedding.join(",")}]`;
 
-  // Build the visible-submissions subquery as a raw SQL string with
-  // proper array handling via ANY().
   const teamArray = teamIds.length > 0 ? teamIds : ["__none__"];
   const projectArray = projectIds.length > 0 ? projectIds : ["__none__"];
 
+  // Use a subquery to get visible artifact IDs, then join with KnowledgeChunk
+  // through ArtifactVersion. This avoids CROSS JOIN duplicates.
+  // SSOT chunks (ssotVersionId IS NOT NULL) are always visible.
   const rows = await db.$queryRaw<RetrievalResult[]>`
-    WITH visible_submissions AS (
-      SELECT DISTINCT
+    WITH visible_artifacts AS (
+      SELECT DISTINCT s."artifactId"
+      FROM "ArtifactSubmission" s
+      WHERE s.active = true
+        AND (
+          (s.scope = 'PERSONAL' AND s."ownerEmployeeId" = ${input.employeeId})
+          OR (s.scope = 'THREAD_ONLY' AND s."ownerEmployeeId" = ${input.employeeId})
+          OR (s.scope = 'TEAM' AND s."teamId" = ANY(${teamArray}::text[]))
+          OR (s.scope = 'PROJECT' AND s."projectId" = ANY(${projectArray}::text[]))
+          OR (s.scope = 'COMPANY')
+        )
+    ),
+    visible_submission_info AS (
+      SELECT DISTINCT ON (s."artifactId")
         s."artifactId",
         s."knowledgeStatus",
         s."dataSensitivity",
@@ -72,6 +85,7 @@ export async function hybridRetrieve(input: HybridRetrieveInput): Promise<Retrie
           OR (s.scope = 'PROJECT' AND s."projectId" = ANY(${projectArray}::text[]))
           OR (s.scope = 'COMPANY')
         )
+      ORDER BY s."artifactId", s."createdAt" DESC
     )
     SELECT
       kc.id AS "chunkId",
@@ -83,15 +97,15 @@ export async function hybridRetrieve(input: HybridRetrieveInput): Promise<Retrie
       kc."chunkIndex",
       (1 - (kc.embedding <=> ${queryVector}::vector) / 2) AS "semanticScore",
       ts_rank_cd(to_tsvector('english', kc.text), plainto_tsquery('english', ${input.query})) AS "keywordScore",
-      vs."knowledgeStatus"::text AS "knowledgeStatus",
-      vs."dataSensitivity"::text AS "dataSensitivity",
-      vs.scope::text AS scope
+      COALESCE(vsi."knowledgeStatus"::text, 'REFERENCE') AS "knowledgeStatus",
+      COALESCE(vsi."dataSensitivity"::text, 'NORMAL') AS "dataSensitivity",
+      COALESCE(vsi.scope::text, 'COMPANY') AS scope
     FROM "KnowledgeChunk" kc
-    JOIN visible_submissions vs ON true
     LEFT JOIN "ArtifactVersion" av ON kc."artifactVersionId" = av.id
-    LEFT JOIN "Artifact" a ON av."artifactId" = a.id
+    LEFT JOIN visible_artifacts va ON av."artifactId" = va."artifactId"
+    LEFT JOIN visible_submission_info vsi ON av."artifactId" = vsi."artifactId"
     WHERE
-      (kc."artifactVersionId" IS NOT NULL AND a.id = vs."artifactId")
+      (kc."artifactVersionId" IS NOT NULL AND va."artifactId" IS NOT NULL)
       OR (kc."ssotVersionId" IS NOT NULL)
     ORDER BY
       (COALESCE(kc.embedding <=> ${queryVector}::vector, 2) * 0.7

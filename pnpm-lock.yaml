@@ -159,7 +159,20 @@ importers:
         specifier: workspace:*
         version: link:../db
 
-  packages/llm: {}
+  packages/llm:
+    dependencies:
+      "@hermes/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+      "@hermes/db":
+        specifier: workspace:*
+        version: link:../db
+      "@hermes/knowledge":
+        specifier: workspace:*
+        version: link:../knowledge
+      "@hermes/memory":
+        specifier: workspace:*
+        version: link:../memory
 
   packages/memory:
     dependencies:
