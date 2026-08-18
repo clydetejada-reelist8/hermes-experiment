@@ -4,7 +4,15 @@ import type { ArtifactScope, KnowledgeStatus } from "@hermes/contracts";
 import { resolveDiscordEmployee, type Employee } from "@hermes/identity";
 import { IdentityDeniedError } from "@hermes/identity";
 import { ObjectStorage } from "@hermes/storage";
-import { getReviewQueueForEmployee, createProposal, type ReviewQueueProposal } from "@hermes/ssot";
+import {
+  approveProposalAsReviewer,
+  createProposal,
+  getReviewQueueForEmployee,
+  rejectProposalAsReviewer,
+  requestChangesAsReviewer,
+  type ReviewActionResult,
+  type ReviewQueueProposal,
+} from "@hermes/ssot";
 import { searchVisibleKnowledge, type SearchEvidence, type SearchInput } from "./search.js";
 
 export interface ResolvedIdentity {
@@ -45,6 +53,18 @@ export interface ServerOptions {
   searchKnowledge?: (input: SearchInput) => Promise<SearchEvidence[]>;
   createUpload?: (input: CreateUploadInput) => Promise<CreateUploadResult>;
   getReviewQueue?: (employeeId: string) => Promise<ReviewQueueProposal[]>;
+  approveSSOTProposal?: (input: {
+    proposalId: string;
+    employeeId: string;
+  }) => Promise<ReviewActionResult>;
+  rejectSSOTProposal?: (input: {
+    proposalId: string;
+    employeeId: string;
+  }) => Promise<ReviewActionResult>;
+  requestSSOTChanges?: (input: {
+    proposalId: string;
+    employeeId: string;
+  }) => Promise<ReviewActionResult>;
   uploadMaxBytes?: number;
 }
 
@@ -70,6 +90,9 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   const searchKnowledge = opts.searchKnowledge ?? searchVisibleKnowledge;
   const createUpload = opts.createUpload ?? defaultCreateUpload;
   const getReviewQueue = opts.getReviewQueue ?? getReviewQueueForEmployee;
+  const approveSSOTProposal = opts.approveSSOTProposal ?? approveProposalAsReviewer;
+  const rejectSSOTProposal = opts.rejectSSOTProposal ?? rejectProposalAsReviewer;
+  const requestSSOTChanges = opts.requestSSOTChanges ?? requestChangesAsReviewer;
   const uploadMaxBytes = opts.uploadMaxBytes ?? 10 * 1024 * 1024;
 
   // Internal auth guard for all /v1/* routes except /v1/health.
@@ -173,6 +196,45 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   );
 
   app.post<{
+    Params: { proposalId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/ssot/proposals/:proposalId/approve", async (request, reply) => {
+    return runReviewAction(
+      request,
+      reply,
+      resolveIdentity,
+      approveSSOTProposal,
+      "proposal_approval_failed",
+    );
+  });
+
+  app.post<{
+    Params: { proposalId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/ssot/proposals/:proposalId/reject", async (request, reply) => {
+    return runReviewAction(
+      request,
+      reply,
+      resolveIdentity,
+      rejectSSOTProposal,
+      "proposal_rejection_failed",
+    );
+  });
+
+  app.post<{
+    Params: { proposalId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/ssot/proposals/:proposalId/request-changes", async (request, reply) => {
+    return runReviewAction(
+      request,
+      reply,
+      resolveIdentity,
+      requestSSOTChanges,
+      "proposal_changes_request_failed",
+    );
+  });
+
+  app.post<{
     Body: {
       discordUserId?: string;
       filename?: string;
@@ -240,6 +302,49 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   });
 
   return app;
+}
+
+interface ReviewActionRequest {
+  body?: { discordUserId?: string };
+  params: { proposalId: string };
+  log: { error(error: unknown): void };
+}
+
+interface ReviewActionReply {
+  send(payload: unknown): unknown;
+  code(statusCode: number): { send(payload: unknown): unknown };
+}
+
+async function runReviewAction(
+  request: ReviewActionRequest,
+  reply: ReviewActionReply,
+  resolveIdentity: (discordUserId: string) => Promise<ResolvedIdentity>,
+  action: (input: { proposalId: string; employeeId: string }) => Promise<ReviewActionResult>,
+  failureCode: string,
+): Promise<unknown> {
+  const discordUserId = request.body?.discordUserId?.trim();
+  if (!discordUserId || !request.params.proposalId) {
+    return reply.code(400).send({ error: "invalid_review_action_request" });
+  }
+
+  try {
+    const identity = await resolveIdentity(discordUserId);
+    return reply.send(
+      await action({ proposalId: request.params.proposalId, employeeId: identity.id }),
+    );
+  } catch (error) {
+    if (error instanceof IdentityDeniedError) {
+      return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+    }
+    if (error instanceof Error && error.message === "review_access_denied") {
+      return reply.code(403).send({ error: "review_access_denied" });
+    }
+    if (error instanceof Error && error.message === "proposal not found") {
+      return reply.code(404).send({ error: "proposal_not_found" });
+    }
+    request.log.error(error);
+    return reply.code(500).send({ error: failureCode });
+  }
 }
 
 async function defaultCreateUpload(input: CreateUploadInput): Promise<CreateUploadResult> {

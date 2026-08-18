@@ -6,6 +6,9 @@ export {
   rejectProposal,
   requestChanges,
   getReviewQueueForEmployee,
+  approveProposalAsReviewer,
+  rejectProposalAsReviewer,
+  requestChangesAsReviewer,
 } from "./proposal.js";
 export type {
   CreateProposalInput,
@@ -14,6 +17,8 @@ export type {
   RejectProposalInput,
   RequestChangesInput,
   ReviewQueueProposal,
+  ReviewActionInput,
+  ReviewActionResult,
 } from "./proposal.js";
 export { detectContradictions } from "./contradiction.js";
 export type { Contradiction, ContradictionResult } from "./contradiction.js";

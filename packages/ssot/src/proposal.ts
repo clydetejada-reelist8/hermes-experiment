@@ -249,12 +249,93 @@ export async function getReviewQueueForEmployee(
     orderBy: { createdAt: "asc" },
   });
 
-  return proposals.map((proposal) => ({
-    id: proposal.id,
-    title: proposal.title,
-    authorityDomain: proposal.authorityDomain,
-    status: "AWAITING_REVIEW",
-    proposedContent: proposal.proposedContent,
-    sourceArtifactIds: proposal.sources.map((source: { artifactId: string }) => source.artifactId),
-  }));
+  return proposals.map(
+    (proposal: {
+      id: string;
+      title: string;
+      authorityDomain: string;
+      proposedContent: string;
+      sources: Array<{ artifactId: string }>;
+    }) => ({
+      id: proposal.id,
+      title: proposal.title,
+      authorityDomain: proposal.authorityDomain,
+      status: "AWAITING_REVIEW" as const,
+      proposedContent: proposal.proposedContent,
+      sourceArtifactIds: proposal.sources.map((source) => source.artifactId),
+    }),
+  );
+}
+
+export interface ReviewActionInput {
+  proposalId: string;
+  employeeId: string;
+}
+
+export interface ReviewActionResult {
+  proposalId: string;
+  status: "APPROVED" | "REJECTED" | "CHANGES_REQUESTED";
+  ssotVersionId?: string;
+}
+
+async function assertProposalAuthority(
+  input: ReviewActionInput,
+  capability: "SSOT_REVIEW" | "SSOT_APPROVE",
+  permissions: Array<"REVIEW" | "APPROVE">,
+): Promise<void> {
+  const proposal = await db.sSOTProposal.findUnique({
+    where: { id: input.proposalId },
+  });
+  if (!proposal) throw new Error("proposal not found");
+
+  const decision = await evaluateCapability(input.employeeId, capability);
+  if (!decision.allowed) throw new Error("review_access_denied");
+
+  const authority = await db.domainAuthority.findFirst({
+    where: {
+      employeeId: input.employeeId,
+      authorityDomain: proposal.authorityDomain,
+      permission: { in: permissions },
+      activeFrom: { lte: new Date() },
+      OR: [{ activeUntil: null }, { activeUntil: { gt: new Date() } }],
+    },
+  });
+  if (!authority) throw new Error("review_access_denied");
+}
+
+export async function approveProposalAsReviewer(
+  input: ReviewActionInput,
+): Promise<ReviewActionResult> {
+  await assertProposalAuthority(input, "SSOT_APPROVE", ["APPROVE"]);
+  const result = await approveProposal({
+    proposalId: input.proposalId,
+    approvedByEmployeeId: input.employeeId,
+  });
+  return {
+    proposalId: result.proposal.id,
+    status: "APPROVED",
+    ssotVersionId: result.version.id,
+  };
+}
+
+export async function rejectProposalAsReviewer(
+  input: ReviewActionInput,
+): Promise<ReviewActionResult> {
+  await assertProposalAuthority(input, "SSOT_REVIEW", ["REVIEW", "APPROVE"]);
+  const proposal = await rejectProposal({
+    proposalId: input.proposalId,
+    rejectedByEmployeeId: input.employeeId,
+  });
+  return { proposalId: proposal.id, status: "REJECTED" };
+}
+
+export async function requestChangesAsReviewer(
+  input: ReviewActionInput,
+): Promise<ReviewActionResult> {
+  await assertProposalAuthority(input, "SSOT_REVIEW", ["REVIEW", "APPROVE"]);
+  const proposal = await requestChanges({
+    proposalId: input.proposalId,
+    reviewedByEmployeeId: input.employeeId,
+  });
+  return { proposalId: proposal.id, status: "CHANGES_REQUESTED" };
 }
