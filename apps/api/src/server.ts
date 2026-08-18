@@ -90,12 +90,29 @@ export interface MemoryRequestResult {
   [key: string]: unknown;
 }
 
+export interface AskRequestInput {
+  employeeId: string;
+  employeeName: string;
+  conversationId: string;
+  messageId: string;
+  text: string;
+}
+
+export interface AskRequestResult {
+  status: string;
+  text: string;
+  citations: unknown[];
+  limitations: string[];
+  conflictChunkIds: string[];
+}
+
 export interface ServerOptions {
   internalServiceToken: string;
   logger?: boolean;
   resolveDiscordIdentity?: (discordUserId: string) => Promise<ResolvedIdentity>;
   searchKnowledge?: (input: SearchInput) => Promise<SearchEvidence[]>;
   createUpload?: (input: CreateUploadInput) => Promise<CreateUploadResult>;
+  ask?: (input: AskRequestInput) => Promise<AskRequestResult>;
   prepareAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
   confirmAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
   executeAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
@@ -143,6 +160,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   const resolveIdentity = opts.resolveDiscordIdentity ?? defaultResolveDiscordIdentity;
   const searchKnowledge = opts.searchKnowledge ?? searchVisibleKnowledge;
   const createUpload = opts.createUpload ?? defaultCreateUpload;
+  const ask = opts.ask ?? missingAskHandler();
   const prepareAction = opts.prepareAction ?? missingActionHandler("prepare");
   const confirmAction = opts.confirmAction ?? missingActionHandler("confirm");
   const executeAction = opts.executeAction ?? missingActionHandler("execute");
@@ -231,6 +249,39 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       }
       request.log.error(error);
       return reply.code(500).send({ error: "search_failed" });
+    }
+  });
+
+  app.post<{
+    Body: {
+      discordUserId?: string;
+      conversationId?: string;
+      messageId?: string;
+      text?: string;
+    };
+  }>("/v1/ask", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.discordUserId?.trim() || !body.conversationId || !body.messageId || !body.text?.trim()) {
+      return reply.code(400).send({ error: "invalid_ask_request" });
+    }
+    try {
+      const identity = await resolveIdentity(body.discordUserId.trim());
+      return await ask({
+        employeeId: identity.id,
+        employeeName: identity.displayName,
+        conversationId: body.conversationId,
+        messageId: body.messageId,
+        text: body.text,
+      });
+    } catch (error) {
+      if (error instanceof IdentityDeniedError) {
+        return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+      }
+      if (error instanceof Error && error.message === "ask_not_configured") {
+        return reply.code(503).send({ error: error.message });
+      }
+      request.log.error(error);
+      return reply.code(500).send({ error: "ask_failed" });
     }
   });
 
@@ -607,6 +658,12 @@ interface ActionRequest {
 interface ActionReply {
   send(payload: unknown): unknown;
   code(statusCode: number): { send(payload: unknown): unknown };
+}
+
+function missingAskHandler() {
+  return async (): Promise<AskRequestResult> => {
+    throw new Error("ask_not_configured");
+  };
 }
 
 function missingActionHandler(operation: string) {
