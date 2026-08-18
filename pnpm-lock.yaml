@@ -40,7 +40,14 @@ importers:
 
   packages/actions: {}
 
-  packages/audit: {}
+  packages/audit:
+    dependencies:
+      "@hermes/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+      "@hermes/db":
+        specifier: workspace:*
+        version: link:../db
 
   packages/config:
     dependencies:
