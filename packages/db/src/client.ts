@@ -1,4 +1,4 @@
-import { PrismaClient } from "./generated/client/index.js";
+import { Prisma, PrismaClient } from "./generated/client/index.js";
 
 /**
  * Shared Prisma client singleton for the Hermes Knowledge Control Plane.
@@ -7,5 +7,6 @@ import { PrismaClient } from "./generated/client/index.js";
  * produced by `prisma generate` (run automatically on postinstall).
  */
 export const db = new PrismaClient();
+export { Prisma };
 export { PrismaClient } from "./generated/client/index.js";
-export type { Prisma } from "./generated/client/index.js";
+export type { Prisma as PrismaTypes } from "./generated/client/index.js";

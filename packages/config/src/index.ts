@@ -11,29 +11,31 @@ import { z } from "zod";
 
 const RawEnvSchema = z.object({
   NODE_ENV: z.string().min(1).default("staging"),
-  APP_BASE_URL: z.string().url(),
-  API_PORT: z.coerce.number().int().positive(),
+  APP_BASE_URL: z.string().url().default("http://127.0.0.1:3000"),
+  API_PORT: z.coerce.number().int().positive().default(3000),
   INTERNAL_SERVICE_TOKEN: z.string().min(1),
   DATABASE_URL: z.string().min(1),
-  REDIS_URL: z.string().min(1),
-  OBJECT_STORAGE_ENDPOINT: z.string().min(1),
-  OBJECT_STORAGE_BUCKET: z.string().min(1),
-  OBJECT_STORAGE_ACCESS_KEY: z.string().min(1),
-  OBJECT_STORAGE_SECRET_KEY: z.string().min(1),
-  TOKEN_ENCRYPTION_KEY: z.string().min(1),
-  DISCORD_BOT_TOKEN: z.string().min(1),
-  DISCORD_APPLICATION_ID: z.string().min(1),
-  DISCORD_GUILD_ID: z.string().min(1),
-  DISCORD_ASK_CHANNEL_ID: z.string().min(1),
-  DISCORD_UPLOAD_CHANNEL_ID: z.string().min(1),
-  GOOGLE_CLIENT_ID: z.string().min(1),
-  GOOGLE_CLIENT_SECRET: z.string().min(1),
-  GOOGLE_REDIRECT_URI: z.string().url(),
-  OPENAI_API_KEY: z.string().min(1),
-  OPENAI_REASONING_MODEL: z.string().min(1),
-  OPENAI_EMBEDDING_MODEL: z.string().min(1),
-  UPLOAD_MAX_BYTES: z.coerce.number().int().positive(),
-  SOURCE_ACCESS_CACHE_TTL_SECONDS: z.coerce.number().int().nonnegative(),
+  REDIS_URL: z.string().min(1).optional(),
+  OBJECT_STORAGE_ENDPOINT: z.string().min(1).optional(),
+  OBJECT_STORAGE_BUCKET: z.string().min(1).optional(),
+  OBJECT_STORAGE_ACCESS_KEY: z.string().min(1).optional(),
+  OBJECT_STORAGE_SECRET_KEY: z.string().min(1).optional(),
+  TOKEN_ENCRYPTION_KEY: z.string().min(1).optional(),
+  DISCORD_BOT_TOKEN: z.string().min(1).optional(),
+  DISCORD_APPLICATION_ID: z.string().min(1).optional(),
+  DISCORD_GUILD_ID: z.string().min(1).optional(),
+  DISCORD_ASK_CHANNEL_ID: z.string().min(1).optional(),
+  DISCORD_UPLOAD_CHANNEL_ID: z.string().min(1).optional(),
+  GOOGLE_CLIENT_ID: z.string().min(1).optional(),
+  GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
+  GOOGLE_REDIRECT_URI: z.string().url().optional(),
+  // Hermes owns model inference. These are optional escape hatches for a
+  // future standalone worker and are not required by the Control Plane.
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  OPENAI_REASONING_MODEL: z.string().min(1).optional(),
+  OPENAI_EMBEDDING_MODEL: z.string().min(1).optional(),
+  UPLOAD_MAX_BYTES: z.coerce.number().int().positive().default(10485760),
+  SOURCE_ACCESS_CACHE_TTL_SECONDS: z.coerce.number().int().nonnegative().default(300),
   STAGING_GOOGLE_HOSTED_DOMAIN: z.string().default(""),
   STAGING_EMAIL_RECIPIENT_ALLOWLIST: z.string().default(""),
   STAGING_RETENTION_CONVERSATION_DAYS: z.coerce.number().int().positive().default(30),
@@ -50,23 +52,23 @@ export interface AppConfig {
   apiPort: number;
   internalServiceToken: string;
   databaseUrl: string;
-  redisUrl: string;
-  objectStorageEndpoint: string;
-  objectStorageBucket: string;
-  objectStorageAccessKey: string;
-  objectStorageSecretKey: string;
-  tokenEncryptionKey: string;
-  discordBotToken: string;
-  discordApplicationId: string;
-  discordGuildId: string;
-  discordAskChannelId: string;
-  discordUploadChannelId: string;
-  googleClientId: string;
-  googleClientSecret: string;
-  googleRedirectUri: string;
-  openaiApiKey: string;
-  openaiReasoningModel: string;
-  openaiEmbeddingModel: string;
+  redisUrl?: string;
+  objectStorageEndpoint?: string;
+  objectStorageBucket?: string;
+  objectStorageAccessKey?: string;
+  objectStorageSecretKey?: string;
+  tokenEncryptionKey?: string;
+  discordBotToken?: string;
+  discordApplicationId?: string;
+  discordGuildId?: string;
+  discordAskChannelId?: string;
+  discordUploadChannelId?: string;
+  googleClientId?: string;
+  googleClientSecret?: string;
+  googleRedirectUri?: string;
+  openaiApiKey?: string;
+  openaiReasoningModel?: string;
+  openaiEmbeddingModel?: string;
   uploadMaxBytes: number;
   sourceAccessCacheTtlSeconds: number;
   stagingGoogleHostedDomain: string;
