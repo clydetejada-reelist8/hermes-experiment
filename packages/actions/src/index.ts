@@ -13,3 +13,10 @@ export type {
   ActionType,
   ActionRiskLevel,
 } from "./state-machine.js";
+export { GmailActionExecutor } from "./gmail.js";
+export type {
+  GmailProvider,
+  CreateDraftActionInput,
+  UpdateDraftActionInput,
+  SendDraftActionInput,
+} from "./gmail.js";

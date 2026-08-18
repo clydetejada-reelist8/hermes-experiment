@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import {
-  createAction,
-  transitionAction,
-  reconcileUnknownOutcome,
-} from "./state-machine.js";
+import { createAction, transitionAction, reconcileUnknownOutcome } from "./state-machine.js";
 import { createEmployee } from "../../../test/fixtures/db-helpers.js";
 
 describe("action state machine", () => {
