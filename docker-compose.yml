@@ -47,6 +47,62 @@ services:
       timeout: 5s
       retries: 10
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP: api
+    container_name: hermes-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://hermes:hermes@postgres:5432/hermes_staging
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+
+  discord:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP: discord
+    container_name: hermes-discord
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://hermes:hermes@postgres:5432/hermes_staging
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP: worker
+    container_name: hermes-worker
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://hermes:hermes@postgres:5432/hermes_staging
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   redis_data:
