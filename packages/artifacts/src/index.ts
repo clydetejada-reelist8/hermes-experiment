@@ -6,3 +6,5 @@ export type {
   LinkDriveArtifactResult,
   CreateSubmissionInput,
 } from "./submissions.js";
+export { classifySubmission } from "./classification.js";
+export type { ClassifySubmissionInput, ClassificationResult } from "./classification.js";

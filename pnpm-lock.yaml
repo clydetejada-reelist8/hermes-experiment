@@ -101,6 +101,9 @@ importers:
       "@hermes/db":
         specifier: workspace:*
         version: link:../db
+      "@hermes/memory":
+        specifier: workspace:*
+        version: link:../memory
       "@hermes/storage":
         specifier: workspace:*
         version: link:../storage

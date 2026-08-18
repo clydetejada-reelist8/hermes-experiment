@@ -18,6 +18,7 @@
   "dependencies": {
     "@hermes/contracts": "workspace:*",
     "@hermes/db": "workspace:*",
+    "@hermes/memory": "workspace:*",
     "@hermes/storage": "workspace:*"
   }
 }
