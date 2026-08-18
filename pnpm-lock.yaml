@@ -120,7 +120,14 @@ importers:
         specifier: ^6.2.1
         version: 6.19.3(typescript@5.9.3)
 
-  packages/google: {}
+  packages/google:
+    dependencies:
+      "@hermes/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+      "@hermes/db":
+        specifier: workspace:*
+        version: link:../db
 
   packages/identity:
     dependencies:

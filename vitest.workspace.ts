@@ -7,6 +7,9 @@ const alias: Record<string, string> = {
   "@hermes/db": fileURLToPath(new URL("./packages/db/src/index.ts", import.meta.url)),
   "@hermes/identity": fileURLToPath(new URL("./packages/identity/src/index.ts", import.meta.url)),
   "@hermes/google": fileURLToPath(new URL("./packages/google/src/index.ts", import.meta.url)),
+  "@hermes/conversations": fileURLToPath(
+    new URL("./packages/conversations/src/index.ts", import.meta.url),
+  ),
   "@hermes/policy": fileURLToPath(new URL("./packages/policy/src/index.ts", import.meta.url)),
   "@hermes/knowledge": fileURLToPath(new URL("./packages/knowledge/src/index.ts", import.meta.url)),
   "@hermes/memory": fileURLToPath(new URL("./packages/memory/src/index.ts", import.meta.url)),
@@ -14,9 +17,6 @@ const alias: Record<string, string> = {
   "@hermes/actions": fileURLToPath(new URL("./packages/actions/src/index.ts", import.meta.url)),
   "@hermes/llm": fileURLToPath(new URL("./packages/llm/src/index.ts", import.meta.url)),
   "@hermes/audit": fileURLToPath(new URL("./packages/audit/src/index.ts", import.meta.url)),
-  "@hermes/conversations": fileURLToPath(
-    new URL("./packages/conversations/src/index.ts", import.meta.url),
-  ),
   "@hermes/observability": fileURLToPath(
     new URL("./packages/observability/src/index.ts", import.meta.url),
   ),
