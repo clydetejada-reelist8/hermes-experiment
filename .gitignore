@@ -7,5 +7,6 @@ coverage/
 .turbo/
 *.tsbuildinfo
 prisma/migrations/dev.db*
+packages/db/src/generated/
 *.log
 .DS_Store

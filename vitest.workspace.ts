@@ -28,6 +28,7 @@ export default defineWorkspace([
       name: "unit",
       include: ["packages/**/src/**/*.test.ts", "apps/**/test/**/*.test.ts"],
       environment: "node",
+      setupFiles: ["test/setup.ts"],
     },
   },
   {
@@ -36,6 +37,7 @@ export default defineWorkspace([
       name: "integration",
       include: ["test/integration/**/*.test.ts", "test/security/**/*.test.ts"],
       environment: "node",
+      setupFiles: ["test/setup.ts"],
     },
   },
 ]);

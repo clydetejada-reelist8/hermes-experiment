@@ -10,6 +10,7 @@ export default tseslint.config(
       "**/coverage/**",
       "**/.prisma/**",
       "**/prisma/migrations/**",
+      "**/src/generated/**",
       "**/*.tsbuildinfo",
     ],
   },

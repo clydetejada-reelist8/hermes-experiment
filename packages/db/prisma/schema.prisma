@@ -1,0 +1,13 @@
+// Hermes Knowledge Control Plane — Prisma schema.
+// Models are added incrementally per the implementation plan. This file holds
+// the datasource/generator configuration and is extended in Task 3.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
