@@ -123,7 +123,7 @@ async function start(): Promise<void> {
     internalServiceToken: cfg.internalServiceToken,
     logger: true,
   });
-  await app.listen({ port: cfg.apiPort, host: "0.0.0.0" });
+  await app.listen({ port: cfg.apiPort, host: cfg.apiHost });
 }
 
 // Start when run directly (not when imported by tests).

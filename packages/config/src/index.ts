@@ -12,6 +12,7 @@ import { z } from "zod";
 const RawEnvSchema = z.object({
   NODE_ENV: z.string().min(1).default("staging"),
   APP_BASE_URL: z.string().url().default("http://127.0.0.1:3000"),
+  API_HOST: z.string().min(1).default("127.0.0.1"),
   API_PORT: z.coerce.number().int().positive().default(3000),
   INTERNAL_SERVICE_TOKEN: z.string().min(1),
   DATABASE_URL: z.string().min(1),
@@ -49,6 +50,7 @@ type RawEnv = z.infer<typeof RawEnvSchema>;
 export interface AppConfig {
   nodeEnv: string;
   appBaseUrl: string;
+  apiHost: string;
   apiPort: number;
   internalServiceToken: string;
   databaseUrl: string;
@@ -83,6 +85,7 @@ function toAppConfig(raw: RawEnv): AppConfig {
   return {
     nodeEnv: raw.NODE_ENV,
     appBaseUrl: raw.APP_BASE_URL,
+    apiHost: raw.API_HOST,
     apiPort: raw.API_PORT,
     internalServiceToken: raw.INTERNAL_SERVICE_TOKEN,
     databaseUrl: raw.DATABASE_URL,
