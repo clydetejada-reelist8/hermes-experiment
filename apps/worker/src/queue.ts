@@ -21,7 +21,8 @@ export class RedisListQueue {
 
   async dequeue<T>(queue: string, timeoutSeconds = 5): Promise<QueueJob<T> | null> {
     const response = await this.command(["BRPOP", queue, String(timeoutSeconds)]);
-    if (!Array.isArray(response) || response.length < 2 || typeof response[1] !== "string") return null;
+    if (!Array.isArray(response) || response.length < 2 || typeof response[1] !== "string")
+      return null;
     return JSON.parse(response[1]) as QueueJob<T>;
   }
 
@@ -33,7 +34,9 @@ export class RedisListQueue {
     return new Promise((resolve, reject) => {
       const socket = net.createConnection({ host, port });
       let buffer = Buffer.alloc(0) as Buffer;
-      const commands = password ? [encodeRedisCommand(["AUTH", password]), encodeRedisCommand(args)] : [encodeRedisCommand(args)];
+      const commands = password
+        ? [encodeRedisCommand(["AUTH", password]), encodeRedisCommand(args)]
+        : [encodeRedisCommand(args)];
       let commandIndex = 0;
       const sendNext = () => socket.write(commands[commandIndex++] as Buffer);
       socket.on("connect", sendNext);

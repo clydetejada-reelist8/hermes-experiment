@@ -1,4 +1,11 @@
-import { ChannelType, Client, GatewayIntentBits, type Channel, type Message, type TextChannel } from "discord.js";
+import {
+  ChannelType,
+  Client,
+  GatewayIntentBits,
+  type Channel,
+  type Message,
+  type TextChannel,
+} from "discord.js";
 import { ControlPlaneClient } from "./api-client.js";
 import { loadConfig } from "@hermes/config";
 import { tryClaimInboundEvent } from "./dedup.js";
@@ -46,9 +53,10 @@ export async function handleAskThreadMessage(
       messageId: message.id,
       text: message.content,
     });
-    const citations = result.citations.length > 0
-      ? `\n\nSources: ${result.citations.map((citation) => formatCitation(citation)).join(", ")}`
-      : "";
+    const citations =
+      result.citations.length > 0
+        ? `\n\nSources: ${result.citations.map((citation) => formatCitation(citation)).join(", ")}`
+        : "";
     await message.channel.send(`${result.text}${citations}`);
   } catch (error) {
     const reason = error instanceof Error ? error.message : "control_plane_request_failed";

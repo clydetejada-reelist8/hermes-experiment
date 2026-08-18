@@ -44,7 +44,8 @@ describe("ControlPlaneClient", () => {
     const client = new ControlPlaneClient({
       baseUrl: "http://control-plane.test/",
       token: "internal-token",
-      fetchImpl: async () => new Response(JSON.stringify({ error: "identity_denied" }), { status: 403 }),
+      fetchImpl: async () =>
+        new Response(JSON.stringify({ error: "identity_denied" }), { status: 403 }),
     });
 
     await expect(

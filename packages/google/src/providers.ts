@@ -59,10 +59,14 @@ export class GoogleGmailProvider {
     private readonly tokenSource: GoogleAccessTokenSource,
     fetchImplOrOptions: typeof fetch | GoogleFetchOptions = fetch,
   ) {
-    this.fetchImpl = typeof fetchImplOrOptions === "function" ? fetchImplOrOptions : fetchImplOrOptions.fetchImpl ?? fetch;
-    this.baseUrl = typeof fetchImplOrOptions === "function"
-      ? "https://gmail.googleapis.com/gmail/v1/users/me"
-      : fetchImplOrOptions.gmailBaseUrl ?? "https://gmail.googleapis.com/gmail/v1/users/me";
+    this.fetchImpl =
+      typeof fetchImplOrOptions === "function"
+        ? fetchImplOrOptions
+        : (fetchImplOrOptions.fetchImpl ?? fetch);
+    this.baseUrl =
+      typeof fetchImplOrOptions === "function"
+        ? "https://gmail.googleapis.com/gmail/v1/users/me"
+        : (fetchImplOrOptions.gmailBaseUrl ?? "https://gmail.googleapis.com/gmail/v1/users/me");
   }
 
   async createDraft(params: GmailDraftParameters): Promise<{ draftId: string }> {
@@ -74,9 +78,13 @@ export class GoogleGmailProvider {
   }
 
   async updateDraft(draftId: string, params: GmailDraftParameters): Promise<{ draftId: string }> {
-    const result = await this.request<{ id?: string }>(`/drafts/${encodeURIComponent(draftId)}`, "PUT", {
-      message: { raw: encodeRawMessage(params) },
-    });
+    const result = await this.request<{ id?: string }>(
+      `/drafts/${encodeURIComponent(draftId)}`,
+      "PUT",
+      {
+        message: { raw: encodeRawMessage(params) },
+      },
+    );
     if (!result.id) throw new Error("gmail_draft_id_missing");
     return { draftId: result.id };
   }
@@ -87,7 +95,11 @@ export class GoogleGmailProvider {
     return { messageId: result.id };
   }
 
-  private async request<T>(path: string, method: string, body: Record<string, unknown>): Promise<T> {
+  private async request<T>(
+    path: string,
+    method: string,
+    body: Record<string, unknown>,
+  ): Promise<T> {
     const token = await this.tokenSource.getAccessToken(this.employeeId);
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method,
@@ -115,13 +127,21 @@ export class GoogleCalendarProvider {
     private readonly tokenSource: GoogleAccessTokenSource,
     fetchImplOrOptions: typeof fetch | GoogleFetchOptions = fetch,
   ) {
-    this.fetchImpl = typeof fetchImplOrOptions === "function" ? fetchImplOrOptions : fetchImplOrOptions.fetchImpl ?? fetch;
-    this.baseUrl = typeof fetchImplOrOptions === "function"
-      ? "https://www.googleapis.com/calendar/v3/calendars/primary"
-      : fetchImplOrOptions.calendarBaseUrl ?? "https://www.googleapis.com/calendar/v3/calendars/primary";
+    this.fetchImpl =
+      typeof fetchImplOrOptions === "function"
+        ? fetchImplOrOptions
+        : (fetchImplOrOptions.fetchImpl ?? fetch);
+    this.baseUrl =
+      typeof fetchImplOrOptions === "function"
+        ? "https://www.googleapis.com/calendar/v3/calendars/primary"
+        : (fetchImplOrOptions.calendarBaseUrl ??
+          "https://www.googleapis.com/calendar/v3/calendars/primary");
   }
 
-  async queryFreeBusy(start: string, end: string): Promise<{ busySlots: { start: string; end: string }[] }> {
+  async queryFreeBusy(
+    start: string,
+    end: string,
+  ): Promise<{ busySlots: { start: string; end: string }[] }> {
     const token = await this.tokenSource.getAccessToken(this.employeeId);
     const response = await this.fetchImpl("https://www.googleapis.com/calendar/v3/freeBusy", {
       method: "POST",
@@ -147,12 +167,19 @@ export class GoogleCalendarProvider {
     return { eventId: result.id };
   }
 
-  async updateEvent(eventId: string, params: { summary?: string; start?: string; end?: string }): Promise<{ eventId: string }> {
-    const result = await this.request<{ id?: string }>(`/events/${encodeURIComponent(eventId)}`, "PATCH", {
-      summary: params.summary,
-      start: params.start ? { dateTime: params.start } : undefined,
-      end: params.end ? { dateTime: params.end } : undefined,
-    });
+  async updateEvent(
+    eventId: string,
+    params: { summary?: string; start?: string; end?: string },
+  ): Promise<{ eventId: string }> {
+    const result = await this.request<{ id?: string }>(
+      `/events/${encodeURIComponent(eventId)}`,
+      "PATCH",
+      {
+        summary: params.summary,
+        start: params.start ? { dateTime: params.start } : undefined,
+        end: params.end ? { dateTime: params.end } : undefined,
+      },
+    );
     if (!result.id) throw new Error("google_calendar_event_id_missing");
     return { eventId: result.id };
   }
@@ -163,11 +190,16 @@ export class GoogleCalendarProvider {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (!response.ok && response.status !== 404) throw new Error(`google_calendar_request_failed_${response.status}`);
+    if (!response.ok && response.status !== 404)
+      throw new Error(`google_calendar_request_failed_${response.status}`);
     return { cancelled: true };
   }
 
-  private async request<T>(path: string, method: string, body: Record<string, unknown>): Promise<T> {
+  private async request<T>(
+    path: string,
+    method: string,
+    body: Record<string, unknown>,
+  ): Promise<T> {
     const token = await this.tokenSource.getAccessToken(this.employeeId);
     const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method,

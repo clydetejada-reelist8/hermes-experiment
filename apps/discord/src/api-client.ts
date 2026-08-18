@@ -42,7 +42,8 @@ export class ControlPlaneClient {
 
     const payload = (await response.json()) as Record<string, unknown>;
     if (!response.ok) {
-      const error = typeof payload.error === "string" ? payload.error : "control_plane_request_failed";
+      const error =
+        typeof payload.error === "string" ? payload.error : "control_plane_request_failed";
       throw new Error(error);
     }
 

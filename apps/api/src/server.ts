@@ -302,7 +302,8 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   // Internal auth guard for all /v1/* routes except /v1/health.
   app.addHook("onRequest", async (request, reply) => {
     const url = request.url.split("?")[0] ?? request.url;
-    if (!url.startsWith("/v1/") || url === "/v1/health" || url === "/v1/google/oauth/callback") return;
+    if (!url.startsWith("/v1/") || url === "/v1/health" || url === "/v1/google/oauth/callback")
+      return;
 
     const auth = request.headers.authorization;
     if (!auth || !auth.startsWith("Bearer ")) {
@@ -387,7 +388,12 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     };
   }>("/v1/ask", async (request, reply) => {
     const body = request.body ?? {};
-    if (!body.discordUserId?.trim() || !body.conversationId || !body.messageId || !body.text?.trim()) {
+    if (
+      !body.discordUserId?.trim() ||
+      !body.conversationId ||
+      !body.messageId ||
+      !body.text?.trim()
+    ) {
       return reply.code(400).send({ error: "invalid_ask_request" });
     }
     try {
@@ -415,7 +421,8 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     "/v1/google/oauth/callback",
     async (request, reply) => {
       const { code, state, error } = request.query;
-      if (error) return reply.code(400).send({ error: "google_authorization_denied", providerError: error });
+      if (error)
+        return reply.code(400).send({ error: "google_authorization_denied", providerError: error });
       if (!code?.trim() || !state?.trim()) {
         return reply.code(400).send({ error: "invalid_google_callback_request" });
       }
@@ -431,38 +438,53 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     Body: { discordUserId?: string; capabilities?: string[] };
   }>("/v1/google/connect-url", async (request, reply) => {
     const body = request.body ?? {};
-    if (!body.discordUserId?.trim() || !Array.isArray(body.capabilities) || body.capabilities.length === 0) {
+    if (
+      !body.discordUserId?.trim() ||
+      !Array.isArray(body.capabilities) ||
+      body.capabilities.length === 0
+    ) {
       return reply.code(400).send({ error: "invalid_google_connect_request" });
     }
     try {
       const identity = await resolveIdentity(body.discordUserId.trim());
-      return await createGoogleConnectUrl({ employeeId: identity.id, capabilities: body.capabilities });
+      return await createGoogleConnectUrl({
+        employeeId: identity.id,
+        capabilities: body.capabilities,
+      });
     } catch (error) {
       return handleGoogleError(request, reply, error);
     }
   });
 
-  app.get<{ Querystring: { discordUserId?: string } }>("/v1/google/connection", async (request, reply) => {
-    const discordUserId = request.query.discordUserId?.trim();
-    if (!discordUserId) return reply.code(400).send({ error: "invalid_google_connection_request" });
-    try {
-      const identity = await resolveIdentity(discordUserId);
-      return await getGoogleConnection({ employeeId: identity.id });
-    } catch (error) {
-      return handleGoogleError(request, reply, error);
-    }
-  });
+  app.get<{ Querystring: { discordUserId?: string } }>(
+    "/v1/google/connection",
+    async (request, reply) => {
+      const discordUserId = request.query.discordUserId?.trim();
+      if (!discordUserId)
+        return reply.code(400).send({ error: "invalid_google_connection_request" });
+      try {
+        const identity = await resolveIdentity(discordUserId);
+        return await getGoogleConnection({ employeeId: identity.id });
+      } catch (error) {
+        return handleGoogleError(request, reply, error);
+      }
+    },
+  );
 
-  app.delete<{ Body: { discordUserId?: string } }>("/v1/google/connection", async (request, reply) => {
-    const discordUserId = request.body?.discordUserId?.trim();
-    if (!discordUserId) return reply.code(400).send({ error: "invalid_google_connection_request" });
-    try {
-      const identity = await resolveIdentity(discordUserId);
-      return await revokeGoogleConnection({ employeeId: identity.id });
-    } catch (error) {
-      return handleGoogleError(request, reply, error);
-    }
-  });
+  app.delete<{ Body: { discordUserId?: string } }>(
+    "/v1/google/connection",
+    async (request, reply) => {
+      const discordUserId = request.body?.discordUserId?.trim();
+      if (!discordUserId)
+        return reply.code(400).send({ error: "invalid_google_connection_request" });
+      try {
+        const identity = await resolveIdentity(discordUserId);
+        return await revokeGoogleConnection({ employeeId: identity.id });
+      } catch (error) {
+        return handleGoogleError(request, reply, error);
+      }
+    },
+  );
 
   app.post<{
     Body: {
@@ -474,21 +496,30 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     };
   }>("/v1/ssot/proposals", async (request, reply) => {
     const body = request.body ?? {};
-    if (!body.discordUserId?.trim() || !body.authorityDomain?.trim() || !body.title?.trim() || !body.proposedContent?.trim()) {
+    if (
+      !body.discordUserId?.trim() ||
+      !body.authorityDomain?.trim() ||
+      !body.title?.trim() ||
+      !body.proposedContent?.trim()
+    ) {
       return reply.code(400).send({ error: "invalid_ssot_proposal_request" });
     }
     try {
       const identity = await resolveIdentity(body.discordUserId.trim());
-      return reply.code(201).send(await createSSOTProposal({
-        employeeId: identity.id,
-        authorityDomain: body.authorityDomain,
-        title: body.title,
-        proposedContent: body.proposedContent,
-        sourceArtifactIds: body.sourceArtifactIds,
-      }));
+      return reply.code(201).send(
+        await createSSOTProposal({
+          employeeId: identity.id,
+          authorityDomain: body.authorityDomain,
+          title: body.title,
+          proposedContent: body.proposedContent,
+          sourceArtifactIds: body.sourceArtifactIds,
+        }),
+      );
     } catch (error) {
-      if (error instanceof IdentityDeniedError) return reply.code(403).send({ error: "identity_denied", reason: error.reason });
-      if (error instanceof Error && error.message === "ssot_propose_denied") return reply.code(403).send({ error: error.message });
+      if (error instanceof IdentityDeniedError)
+        return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+      if (error instanceof Error && error.message === "ssot_propose_denied")
+        return reply.code(403).send({ error: error.message });
       request.log.error(error);
       return reply.code(500).send({ error: "ssot_proposal_failed" });
     }
@@ -665,12 +696,19 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     if (!body.actionType || !body.parameters || !body.idempotencyKey) {
       return reply.code(400).send({ error: "invalid_action_prepare_request" });
     }
-    return runActionRequest(request, reply, resolveIdentity, prepareAction, {
-      actionType: body.actionType,
-      parameters: body.parameters,
-      conversationId: body.conversationId,
-      idempotencyKey: body.idempotencyKey,
-    }, 201);
+    return runActionRequest(
+      request,
+      reply,
+      resolveIdentity,
+      prepareAction,
+      {
+        actionType: body.actionType,
+        parameters: body.parameters,
+        conversationId: body.conversationId,
+        idempotencyKey: body.idempotencyKey,
+      },
+      201,
+    );
   });
 
   app.post<{ Params: { actionId: string }; Body: { discordUserId?: string } }>(
@@ -710,14 +748,23 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     if (!discordUserId) return reply.code(400).send({ error: "invalid_reminder_request" });
     try {
       const identity = await resolveIdentity(discordUserId);
-      return { employeeId: identity.id, reminders: await listReminders({ employeeId: identity.id }) };
+      return {
+        employeeId: identity.id,
+        reminders: await listReminders({ employeeId: identity.id }),
+      };
     } catch (error) {
       return handleReminderError(request, reply, error);
     }
   });
 
   app.post<{
-    Body: { discordUserId?: string; text?: string; dueAt?: string; timezone?: string; conversationId?: string };
+    Body: {
+      discordUserId?: string;
+      text?: string;
+      dueAt?: string;
+      timezone?: string;
+      conversationId?: string;
+    };
   }>("/v1/reminders", async (request, reply) => {
     const body = request.body ?? {};
     if (!body.discordUserId?.trim() || !body.text?.trim() || !body.dueAt || !body.timezone) {
@@ -725,12 +772,14 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     }
     try {
       const identity = await resolveIdentity(body.discordUserId.trim());
-      return reply.code(201).send(await createReminderHandler({
-        employeeId: identity.id,
-        text: body.text,
-        dueAt: body.dueAt,
-        timezone: body.timezone,
-      }));
+      return reply.code(201).send(
+        await createReminderHandler({
+          employeeId: identity.id,
+          text: body.text,
+          dueAt: body.dueAt,
+          timezone: body.timezone,
+        }),
+      );
     } catch (error) {
       return handleReminderError(request, reply, error);
     }
@@ -738,12 +787,14 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
 
   app.post<{ Params: { reminderId: string }; Body: { discordUserId?: string } }>(
     "/v1/reminders/:reminderId/complete",
-    async (request, reply) => runReminderMutation(request, reply, resolveIdentity, completeReminderHandler),
+    async (request, reply) =>
+      runReminderMutation(request, reply, resolveIdentity, completeReminderHandler),
   );
 
   app.post<{ Params: { reminderId: string }; Body: { discordUserId?: string } }>(
     "/v1/reminders/:reminderId/cancel",
-    async (request, reply) => runReminderMutation(request, reply, resolveIdentity, cancelReminderHandler),
+    async (request, reply) =>
+      runReminderMutation(request, reply, resolveIdentity, cancelReminderHandler),
   );
 
   app.get<{ Querystring: { discordUserId?: string } }>("/v1/memory", async (request, reply) => {
@@ -804,7 +855,8 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     }
   });
 
-  app.delete<{ Params: { memoryId: string }; Body: { discordUserId?: string } }>(    "/v1/memory/:memoryId",
+  app.delete<{ Params: { memoryId: string }; Body: { discordUserId?: string } }>(
+    "/v1/memory/:memoryId",
     async (request, reply) => {
       const discordUserId = request.body?.discordUserId?.trim();
       if (!discordUserId || !request.params.memoryId) {
@@ -828,20 +880,25 @@ async function defaultListReminders(input: ReminderRequestInput): Promise<Remind
 
 async function defaultCreateReminder(input: ReminderRequestInput): Promise<ReminderRequestResult> {
   if (!input.text || !input.dueAt || !input.timezone) throw new Error("reminder_create_invalid");
-  return toReminderResult(await createReminder({
-    employeeId: input.employeeId,
-    text: input.text,
-    dueAt: new Date(input.dueAt),
-    timezone: input.timezone,
-  }));
+  return toReminderResult(
+    await createReminder({
+      employeeId: input.employeeId,
+      text: input.text,
+      dueAt: new Date(input.dueAt),
+      timezone: input.timezone,
+    }),
+  );
 }
 
 async function requireOwnedReminder(employeeId: string, reminderId: string): Promise<void> {
   const reminders = await getRemindersForEmployee(employeeId);
-  if (!reminders.some((reminder) => reminder.id === reminderId)) throw new Error("reminder_not_found");
+  if (!reminders.some((reminder) => reminder.id === reminderId))
+    throw new Error("reminder_not_found");
 }
 
-async function defaultCompleteReminder(input: ReminderRequestInput): Promise<ReminderRequestResult> {
+async function defaultCompleteReminder(
+  input: ReminderRequestInput,
+): Promise<ReminderRequestResult> {
   if (!input.reminderId) throw new Error("reminder_complete_invalid");
   await requireOwnedReminder(input.employeeId, input.reminderId);
   return toReminderResult(await completeReminder(input.reminderId));
@@ -876,23 +933,35 @@ function handleReminderError(
   reply: { code(statusCode: number): { send(payload: unknown): unknown } },
   error: unknown,
 ): unknown {
-  if (error instanceof IdentityDeniedError) return reply.code(403).send({ error: "identity_denied", reason: error.reason });
-  if (error instanceof Error && error.message.endsWith("_not_found")) return reply.code(404).send({ error: error.message });
+  if (error instanceof IdentityDeniedError)
+    return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+  if (error instanceof Error && error.message.endsWith("_not_found"))
+    return reply.code(404).send({ error: error.message });
   request.log.error(error);
   return reply.code(500).send({ error: "reminder_request_failed" });
 }
 
 async function runReminderMutation(
-  request: { body?: { discordUserId?: string }; params: { reminderId: string }; log: { error(error: unknown): void } },
-  reply: { code(statusCode: number): { send(payload: unknown): unknown }; send(payload: unknown): unknown },
+  request: {
+    body?: { discordUserId?: string };
+    params: { reminderId: string };
+    log: { error(error: unknown): void };
+  },
+  reply: {
+    code(statusCode: number): { send(payload: unknown): unknown };
+    send(payload: unknown): unknown;
+  },
   resolveIdentity: (discordUserId: string) => Promise<ResolvedIdentity>,
   mutation: (input: ReminderRequestInput) => Promise<ReminderRequestResult>,
 ): Promise<unknown> {
   const discordUserId = request.body?.discordUserId?.trim();
-  if (!discordUserId || !request.params.reminderId) return reply.code(400).send({ error: "invalid_reminder_request" });
+  if (!discordUserId || !request.params.reminderId)
+    return reply.code(400).send({ error: "invalid_reminder_request" });
   try {
     const identity = await resolveIdentity(discordUserId);
-    return reply.send(await mutation({ employeeId: identity.id, reminderId: request.params.reminderId }));
+    return reply.send(
+      await mutation({ employeeId: identity.id, reminderId: request.params.reminderId }),
+    );
   } catch (error) {
     return handleReminderError(request, reply, error);
   }
@@ -996,58 +1065,71 @@ async function defaultPrepareAction(input: ActionRequestInput): Promise<ActionRe
   if (!input.actionType || !input.parameters || !input.idempotencyKey) {
     throw new Error("action_prepare_invalid");
   }
-  const proposal = parseActionProposal({ actionType: input.actionType, parameters: input.parameters });
+  const proposal = parseActionProposal({
+    actionType: input.actionType,
+    parameters: input.parameters,
+  });
   const validation = validateProposal(proposal);
   if (!validation.valid) throw new Error(`action_invalid: ${validation.errors.join("; ")}`);
   const providers = await googleExecutors(input.employeeId);
 
   switch (proposal.actionType) {
     case "GMAIL_CREATE_DRAFT":
-      return toActionResult(await providers.gmail.createDraftAction({
-        employeeId: input.employeeId,
-        conversationId: input.conversationId,
-        idempotencyKey: input.idempotencyKey,
-        to: String(proposal.parameters.to),
-        subject: String(proposal.parameters.subject),
-        body: String(proposal.parameters.body),
-      }));
+      return toActionResult(
+        await providers.gmail.createDraftAction({
+          employeeId: input.employeeId,
+          conversationId: input.conversationId,
+          idempotencyKey: input.idempotencyKey,
+          to: String(proposal.parameters.to),
+          subject: String(proposal.parameters.subject),
+          body: String(proposal.parameters.body),
+        }),
+      );
     case "GMAIL_SEND_DRAFT":
-      return toActionResult(await providers.gmail.sendDraftAction({
-        employeeId: input.employeeId,
-        conversationId: input.conversationId,
-        draftActionId: String(proposal.parameters.draftId),
-        idempotencyKey: input.idempotencyKey,
-      }));
+      return toActionResult(
+        await providers.gmail.sendDraftAction({
+          employeeId: input.employeeId,
+          conversationId: input.conversationId,
+          draftActionId: String(proposal.parameters.draftId),
+          idempotencyKey: input.idempotencyKey,
+        }),
+      );
     case "CALENDAR_FREEBUSY":
       return {
         id: "",
-        status: (await providers.calendar.queryFreeBusy({
-          employeeId: input.employeeId,
-          idempotencyKey: input.idempotencyKey,
-          start: String(proposal.parameters.start),
-          end: String(proposal.parameters.end),
-        })).status,
+        status: (
+          await providers.calendar.queryFreeBusy({
+            employeeId: input.employeeId,
+            idempotencyKey: input.idempotencyKey,
+            start: String(proposal.parameters.start),
+            end: String(proposal.parameters.end),
+          })
+        ).status,
         parameters: proposal.parameters,
       };
     case "CALENDAR_CREATE_PERSONAL_EVENT":
-      return toActionResult(await providers.calendar.createPersonalEventAction({
-        employeeId: input.employeeId,
-        conversationId: input.conversationId,
-        idempotencyKey: input.idempotencyKey,
-        summary: String(proposal.parameters.summary),
-        start: String(proposal.parameters.start),
-        end: String(proposal.parameters.end),
-      }));
+      return toActionResult(
+        await providers.calendar.createPersonalEventAction({
+          employeeId: input.employeeId,
+          conversationId: input.conversationId,
+          idempotencyKey: input.idempotencyKey,
+          summary: String(proposal.parameters.summary),
+          start: String(proposal.parameters.start),
+          end: String(proposal.parameters.end),
+        }),
+      );
     case "CALENDAR_CREATE_MEETING":
-      return toActionResult(await providers.calendar.createMeetingAction({
-        employeeId: input.employeeId,
-        conversationId: input.conversationId,
-        idempotencyKey: input.idempotencyKey,
-        summary: String(proposal.parameters.summary),
-        start: String(proposal.parameters.start),
-        end: String(proposal.parameters.end),
-        attendees: (proposal.parameters.attendees as string[]),
-      }));
+      return toActionResult(
+        await providers.calendar.createMeetingAction({
+          employeeId: input.employeeId,
+          conversationId: input.conversationId,
+          idempotencyKey: input.idempotencyKey,
+          summary: String(proposal.parameters.summary),
+          start: String(proposal.parameters.start),
+          end: String(proposal.parameters.end),
+          attendees: proposal.parameters.attendees as string[],
+        }),
+      );
     default:
       throw new Error(`action_type_not_supported: ${proposal.actionType}`);
   }
@@ -1057,7 +1139,8 @@ async function defaultConfirmAction(input: ActionRequestInput): Promise<ActionRe
   if (!input.actionId) throw new Error("action_confirm_invalid");
   const action = await getStoredAction(input.actionId);
   if (!action || action.employeeId !== input.employeeId) throw new Error("action_not_found");
-  if (action.status !== "AWAITING_CONFIRMATION") throw new Error("action_confirmation_not_required");
+  if (action.status !== "AWAITING_CONFIRMATION")
+    throw new Error("action_confirmation_not_required");
   const confirmedParametersHash = createHash("sha256")
     .update(JSON.stringify(action.parametersJson))
     .digest("hex");
@@ -1175,7 +1258,9 @@ async function defaultGetGoogleConnection(input: {
   };
 }
 
-async function defaultRevokeGoogleConnection(input: { employeeId: string }): Promise<{ revoked: boolean }> {
+async function defaultRevokeGoogleConnection(input: {
+  employeeId: string;
+}): Promise<{ revoked: boolean }> {
   await revokeConnection(input.employeeId);
   return { revoked: true };
 }
@@ -1212,7 +1297,12 @@ async function defaultCompleteGoogleOAuth(
 ): Promise<GoogleConnectionResult> {
   const { loadConfig } = await import("@hermes/config");
   const cfg = loadConfig(process.env);
-  if (!cfg.googleClientId || !cfg.googleClientSecret || !cfg.googleRedirectUri || !cfg.tokenEncryptionKey) {
+  if (
+    !cfg.googleClientId ||
+    !cfg.googleClientSecret ||
+    !cfg.googleRedirectUri ||
+    !cfg.tokenEncryptionKey
+  ) {
     throw new Error("google_oauth_not_configured");
   }
 

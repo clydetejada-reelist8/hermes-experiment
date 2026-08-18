@@ -6,7 +6,12 @@ describe("SSOT proposal API", () => {
     let received: unknown;
     const app = await buildServer({
       internalServiceToken: "test-token",
-      resolveDiscordIdentity: async () => ({ id: "employee-1", employeeCode: "RL8-EMP-0001", displayName: "Employee", discordUserId: "discord-1" }),
+      resolveDiscordIdentity: async () => ({
+        id: "employee-1",
+        employeeCode: "RL8-EMP-0001",
+        displayName: "Employee",
+        discordUserId: "discord-1",
+      }),
       createSSOTProposal: async (input) => {
         received = input;
         return { proposalId: "proposal-1", status: "AWAITING_REVIEW" };

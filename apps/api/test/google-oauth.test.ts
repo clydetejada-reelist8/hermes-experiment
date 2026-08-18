@@ -51,7 +51,11 @@ describe("Google OAuth API", () => {
       }),
       getGoogleConnection: async ({ employeeId }) => {
         calls.push(`get:${employeeId}`);
-        return { connected: true, providerEmail: "employee@example.com", scopes: ["gmail.compose"] };
+        return {
+          connected: true,
+          providerEmail: "employee@example.com",
+          scopes: ["gmail.compose"],
+        };
       },
       revokeGoogleConnection: async ({ employeeId }) => {
         calls.push(`revoke:${employeeId}`);

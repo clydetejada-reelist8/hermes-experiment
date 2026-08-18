@@ -20,7 +20,9 @@ function message(overrides: Partial<AskThreadMessage> = {}): AskThreadMessage {
 describe("Discord Ask thread handler", () => {
   it("calls the Control Plane and posts the cited answer", async () => {
     const sent: string[] = [];
-    const input = message({ channel: { ...message().channel, send: async (content) => sent.push(content) } });
+    const input = message({
+      channel: { ...message().channel, send: async (content) => sent.push(content) },
+    });
     const client = new ControlPlaneClient({
       baseUrl: "http://control-plane.test",
       token: "token",

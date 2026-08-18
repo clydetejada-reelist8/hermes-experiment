@@ -6,7 +6,11 @@ describe("WorkerRunner", () => {
     const processed: string[] = [];
     const runner = new WorkerRunner(
       {
-        dequeue: async () => ({ id: "job-1", name: "artifact-ingestion", data: { versionId: "v1" } }),
+        dequeue: async () => ({
+          id: "job-1",
+          name: "artifact-ingestion",
+          data: { versionId: "v1" },
+        }),
       },
       {
         "artifact-ingestion": async (job) => {

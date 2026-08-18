@@ -12,7 +12,6 @@ describe("GET /health", () => {
   });
 });
 
-
 describe("GET /v1/health", () => {
   it("returns 200 and ok status", async () => {
     const app = await buildServer({ internalServiceToken: "test-token" });

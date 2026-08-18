@@ -131,8 +131,8 @@ describe("source sync and revalidation", () => {
       },
     });
 
-    await expect(
-      revalidateConnection(conn.id, new MockTokenValidator(), TEST_KEY),
-    ).rejects.toThrow("refresh token is missing");
+    await expect(revalidateConnection(conn.id, new MockTokenValidator(), TEST_KEY)).rejects.toThrow(
+      "refresh token is missing",
+    );
   });
 });
