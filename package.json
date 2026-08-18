@@ -27,6 +27,7 @@
     "test:security": "vitest run test/security",
     "eval:staging": "tsx scripts/run-staging-evals.ts",
     "smoke-test": "tsx scripts/smoke-test.ts",
+    "import:ssot": "tsx scripts/import-ssot-file.ts",
     "seed": "pnpm --filter @hermes/db seed"
   },
   "devDependencies": {

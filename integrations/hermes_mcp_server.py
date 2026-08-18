@@ -93,5 +93,22 @@ def reelist8_search(
     )
 
 
+@mcp.tool(
+    description=(
+        "Retrieve the complete canonical text of an authorized official REELIST8 SSOT version. "
+        "Use this for official-values or official-policy questions when exact wording matters."
+    )
+)
+def reelist8_get_ssot_document(discord_user_id: str, ssot_version_id: str) -> dict[str, Any]:
+    """Retrieve a complete authorized SSOT document without summarizing it."""
+    return _post(
+        "/v1/ssot/document",
+        {
+            "discordUserId": discord_user_id.strip(),
+            "ssotVersionId": ssot_version_id.strip(),
+        },
+    )
+
+
 if __name__ == "__main__":
     mcp.run("stdio")

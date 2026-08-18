@@ -48,6 +48,21 @@ async function main(): Promise<void> {
   }
 
   let updated = 0;
+  const readerRole = await db.role.upsert({
+    where: { key: "staging-company-reader" },
+    create: { key: "staging-company-reader", name: "Staging Company Reader" },
+    update: { name: "Staging Company Reader" },
+  });
+  await db.roleCapability.upsert({
+    where: {
+      roleId_capability: {
+        roleId: readerRole.id,
+        capability: "KNOWLEDGE_READ_COMPANY",
+      },
+    },
+    create: { roleId: readerRole.id, capability: "KNOWLEDGE_READ_COMPANY" },
+    update: {},
+  });
   for (const e of employees) {
     const emp = await db.employee.upsert({
       where: { employeeCode: e.employeeCode },
@@ -81,6 +96,11 @@ async function main(): Promise<void> {
         verifiedAt: new Date(),
       },
       update: { employeeId: emp.id, verifiedAt: new Date() },
+    });
+    await db.employeeRole.upsert({
+      where: { employeeId_roleId: { employeeId: emp.id, roleId: readerRole.id } },
+      create: { employeeId: emp.id, roleId: readerRole.id },
+      update: {},
     });
     updated++;
   }

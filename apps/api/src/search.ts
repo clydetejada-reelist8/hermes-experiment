@@ -13,6 +13,7 @@ export interface SearchEvidence {
   scope: string;
   sourceType: string;
   citation: string;
+  ssotVersionId?: string;
 }
 
 interface SearchRow {
@@ -125,5 +126,6 @@ export async function searchVisibleKnowledge(input: SearchInput): Promise<Search
       row.ssotVersionId ??
       row.artifactId ??
       row.chunkId,
+    ssotVersionId: row.ssotVersionId ?? undefined,
   }));
 }
