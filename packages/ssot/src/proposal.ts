@@ -249,14 +249,22 @@ export async function getReviewQueueForEmployee(
     orderBy: { createdAt: "asc" },
   });
 
-  return proposals.map((proposal) => ({
-    id: proposal.id,
-    title: proposal.title,
-    authorityDomain: proposal.authorityDomain,
-    status: "AWAITING_REVIEW",
-    proposedContent: proposal.proposedContent,
-    sourceArtifactIds: proposal.sources.map((source: { artifactId: string }) => source.artifactId),
-  }));
+  return proposals.map(
+    (proposal: {
+      id: string;
+      title: string;
+      authorityDomain: string;
+      proposedContent: string;
+      sources: Array<{ artifactId: string }>;
+    }) => ({
+      id: proposal.id,
+      title: proposal.title,
+      authorityDomain: proposal.authorityDomain,
+      status: "AWAITING_REVIEW" as const,
+      proposedContent: proposal.proposedContent,
+      sourceArtifactIds: proposal.sources.map((source) => source.artifactId),
+    }),
+  );
 }
 
 export interface ReviewActionInput {
