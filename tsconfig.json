@@ -1,0 +1,21 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/config" },
+    { "path": "packages/contracts" },
+    { "path": "packages/db" },
+    { "path": "packages/identity" },
+    { "path": "packages/google" },
+    { "path": "packages/policy" },
+    { "path": "packages/knowledge" },
+    { "path": "packages/memory" },
+    { "path": "packages/ssot" },
+    { "path": "packages/actions" },
+    { "path": "packages/llm" },
+    { "path": "packages/audit" },
+    { "path": "packages/observability" },
+    { "path": "apps/api" },
+    { "path": "apps/discord" },
+    { "path": "apps/worker" }
+  ]
+}

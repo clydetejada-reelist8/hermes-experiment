@@ -1,0 +1,37 @@
+{
+  "name": "hermes",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Hermes — REELIST8 internal AI operating layer (staging)",
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:integration": "vitest run test/integration test/security",
+    "test:security": "vitest run test/security",
+    "eval:staging": "tsx scripts/run-staging-evals.ts"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.10.0",
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.67.0",
+    "vitest": "^2.1.8"
+  }
+}
