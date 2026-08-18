@@ -74,6 +74,9 @@ jobs:
       - name: Push database schema
         run: pnpm --filter @hermes/db exec prisma db push --accept-data-loss
 
+      - name: Apply database integrity constraints
+        run: psql "$DATABASE_URL" -f packages/db/prisma/integrity-constraints.sql
+
       - name: Start MinIO
         run: |
           docker run --detach --name hermes-minio \
