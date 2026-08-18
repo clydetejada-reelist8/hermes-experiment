@@ -19,7 +19,6 @@ const alias: Record<string, string> = {
   "@hermes/audit": fileURLToPath(new URL("./packages/audit/src/index.ts", import.meta.url)),
   "@hermes/storage": fileURLToPath(new URL("./packages/storage/src/index.ts", import.meta.url)),
   "@hermes/artifacts": fileURLToPath(new URL("./packages/artifacts/src/index.ts", import.meta.url)),
-  "@hermes/knowledge": fileURLToPath(new URL("./packages/knowledge/src/index.ts", import.meta.url)),
   "@hermes/observability": fileURLToPath(
     new URL("./packages/observability/src/index.ts", import.meta.url),
   ),

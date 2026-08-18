@@ -161,7 +161,14 @@ importers:
 
   packages/llm: {}
 
-  packages/memory: {}
+  packages/memory:
+    dependencies:
+      "@hermes/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+      "@hermes/db":
+        specifier: workspace:*
+        version: link:../db
 
   packages/observability: {}
 
