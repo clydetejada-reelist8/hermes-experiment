@@ -21,6 +21,7 @@ import type {
   MemoryStatus,
   MemoryType,
 } from "@hermes/contracts";
+import { evaluateCapability } from "@hermes/policy";
 import { resolveDiscordEmployee, type Employee } from "@hermes/identity";
 import { IdentityDeniedError } from "@hermes/identity";
 import {
@@ -147,6 +148,19 @@ export interface GoogleOAuthCallbackInput {
   state: string;
 }
 
+export interface SSOTProposalInput {
+  employeeId: string;
+  authorityDomain: string;
+  title: string;
+  proposedContent: string;
+  sourceArtifactIds?: string[];
+}
+
+export interface SSOTProposalResult {
+  proposalId: string;
+  status: string;
+}
+
 export interface ReminderRequestInput {
   employeeId: string;
   reminderId?: string;
@@ -194,6 +208,7 @@ export interface ServerOptions {
   deleteMemory?: (input: MemoryRequestInput) => Promise<MemoryRequestResult>;
   getReviewQueue?: (employeeId: string) => Promise<ReviewQueueProposal[]>;
   getSSOTDocument?: (employeeId: string, versionId: string) => Promise<SSOTDocument>;
+  createSSOTProposal?: (input: SSOTProposalInput) => Promise<SSOTProposalResult>;
   approveSSOTProposal?: (input: {
     proposalId: string;
     employeeId: string;
@@ -207,6 +222,19 @@ export interface ServerOptions {
     employeeId: string;
   }) => Promise<ReviewActionResult>;
   uploadMaxBytes?: number;
+}
+
+async function defaultCreateSSOTProposal(input: SSOTProposalInput): Promise<SSOTProposalResult> {
+  const decision = await evaluateCapability(input.employeeId, "SSOT_PROPOSE");
+  if (!decision.allowed) throw new Error("ssot_propose_denied");
+  const proposal = await createProposal({
+    proposedByEmployeeId: input.employeeId,
+    authorityDomain: input.authorityDomain,
+    title: input.title,
+    proposedContent: input.proposedContent,
+    sourceArtifactIds: input.sourceArtifactIds,
+  });
+  return { proposalId: proposal.id, status: proposal.status };
 }
 
 async function defaultReadinessCheck(): Promise<ReadinessResult> {
@@ -264,6 +292,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   const updateMemory = opts.updateMemory ?? defaultUpdateMemory;
   const deleteMemory = opts.deleteMemory ?? defaultDeleteMemory;
   const getReviewQueue = opts.getReviewQueue ?? getReviewQueueForEmployee;
+  const createSSOTProposal = opts.createSSOTProposal ?? defaultCreateSSOTProposal;
   const getSSOTDocument = opts.getSSOTDocument ?? getSSOTDocumentForEmployee;
   const approveSSOTProposal = opts.approveSSOTProposal ?? approveProposalAsReviewer;
   const rejectSSOTProposal = opts.rejectSSOTProposal ?? rejectProposalAsReviewer;
@@ -432,6 +461,36 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       return await revokeGoogleConnection({ employeeId: identity.id });
     } catch (error) {
       return handleGoogleError(request, reply, error);
+    }
+  });
+
+  app.post<{
+    Body: {
+      discordUserId?: string;
+      authorityDomain?: string;
+      title?: string;
+      proposedContent?: string;
+      sourceArtifactIds?: string[];
+    };
+  }>("/v1/ssot/proposals", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.discordUserId?.trim() || !body.authorityDomain?.trim() || !body.title?.trim() || !body.proposedContent?.trim()) {
+      return reply.code(400).send({ error: "invalid_ssot_proposal_request" });
+    }
+    try {
+      const identity = await resolveIdentity(body.discordUserId.trim());
+      return reply.code(201).send(await createSSOTProposal({
+        employeeId: identity.id,
+        authorityDomain: body.authorityDomain,
+        title: body.title,
+        proposedContent: body.proposedContent,
+        sourceArtifactIds: body.sourceArtifactIds,
+      }));
+    } catch (error) {
+      if (error instanceof IdentityDeniedError) return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+      if (error instanceof Error && error.message === "ssot_propose_denied") return reply.code(403).send({ error: error.message });
+      request.log.error(error);
+      return reply.code(500).send({ error: "ssot_proposal_failed" });
     }
   });
 

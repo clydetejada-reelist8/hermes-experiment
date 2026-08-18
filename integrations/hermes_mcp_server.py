@@ -185,6 +185,25 @@ def reelist8_get_review_queue(discord_user_id: str) -> dict[str, Any]:
     return _get("/v1/ssot/review-queue", {"discordUserId": discord_user_id.strip()})
 
 
+@mcp.tool(description="Create an SSOT proposal for authorized review without publishing official knowledge.")
+def reelist8_create_ssot_proposal(
+    discord_user_id: str,
+    authority_domain: str,
+    title: str,
+    proposed_content: str,
+    source_artifact_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "discordUserId": discord_user_id.strip(),
+        "authorityDomain": authority_domain.strip(),
+        "title": title.strip(),
+        "proposedContent": proposed_content,
+    }
+    if source_artifact_ids:
+        payload["sourceArtifactIds"] = source_artifact_ids
+    return _post("/v1/ssot/proposals", payload)
+
+
 @mcp.tool(description="Approve an SSOT proposal only through the Control Plane authority check.")
 def reelist8_approve_ssot_proposal(discord_user_id: str, proposal_id: str) -> dict[str, Any]:
     return _post(
