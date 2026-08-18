@@ -32,13 +32,13 @@ export async function getSSOTDocumentForEmployee(
     title: version.ssotRecord.title,
     authorityDomain: version.ssotRecord.authorityDomain,
     content: version.content,
-    sourceLocators: [
-      ...new Set(
+    sourceLocators: Array.from(
+      new Set<string>(
         version.chunks
           .map((chunk: { sourceLocator: string | null }) => chunk.sourceLocator)
-          .filter((locator): locator is string => Boolean(locator)),
+          .filter((locator: string | null): locator is string => Boolean(locator)),
       ),
-    ],
+    ),
     effectiveFrom: version.effectiveFrom,
     effectiveUntil: version.effectiveUntil,
   };
