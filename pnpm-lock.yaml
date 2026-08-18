@@ -86,7 +86,14 @@ importers:
 
   packages/observability: {}
 
-  packages/policy: {}
+  packages/policy:
+    dependencies:
+      "@hermes/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+      "@hermes/db":
+        specifier: workspace:*
+        version: link:../db
 
   packages/ssot: {}
 
