@@ -222,9 +222,9 @@ async function main(): Promise<void> {
       byCategory[result.category] = { passed: 0, failed: 0 };
     }
     if (result.passed) {
-      byCategory[result.category].passed++;
+      byCategory[result.category]!.passed++;
     } else {
-      byCategory[result.category].failed++;
+      byCategory[result.category]!.failed++;
       allPassed = false;
     }
   }

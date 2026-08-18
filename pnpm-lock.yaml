@@ -245,6 +245,12 @@ importers:
 
   scripts:
     dependencies:
+      "@hermes/actions":
+        specifier: workspace:*
+        version: link:../packages/actions
+      "@hermes/admin":
+        specifier: workspace:*
+        version: link:../packages/admin
       "@hermes/config":
         specifier: workspace:*
         version: link:../packages/config
@@ -254,6 +260,9 @@ importers:
       "@hermes/db":
         specifier: workspace:*
         version: link:../packages/db
+      "@hermes/llm":
+        specifier: workspace:*
+        version: link:../packages/llm
 
 packages:
   "@aws-sdk/checksums@3.1000.28":

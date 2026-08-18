@@ -10,6 +10,9 @@
   "dependencies": {
     "@hermes/config": "workspace:*",
     "@hermes/contracts": "workspace:*",
-    "@hermes/db": "workspace:*"
+    "@hermes/db": "workspace:*",
+    "@hermes/llm": "workspace:*",
+    "@hermes/actions": "workspace:*",
+    "@hermes/admin": "workspace:*"
   }
 }
