@@ -16,6 +16,10 @@
     "@hermes/contracts": "workspace:*",
     "@hermes/db": "workspace:*",
     "@hermes/identity": "workspace:*",
+    "@hermes/knowledge": "workspace:*",
+    "@hermes/llm": "workspace:*",
+    "@hermes/memory": "workspace:*",
+    "@hermes/artifacts": "workspace:*",
     "discord.js": "^14.16.3"
   }
 }

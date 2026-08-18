@@ -58,6 +58,9 @@ importers:
 
   apps/discord:
     dependencies:
+      "@hermes/artifacts":
+        specifier: workspace:*
+        version: link:../../packages/artifacts
       "@hermes/audit":
         specifier: workspace:*
         version: link:../../packages/audit
@@ -73,6 +76,15 @@ importers:
       "@hermes/identity":
         specifier: workspace:*
         version: link:../../packages/identity
+      "@hermes/knowledge":
+        specifier: workspace:*
+        version: link:../../packages/knowledge
+      "@hermes/llm":
+        specifier: workspace:*
+        version: link:../../packages/llm
+      "@hermes/memory":
+        specifier: workspace:*
+        version: link:../../packages/memory
       discord.js:
         specifier: ^14.16.3
         version: 14.27.0

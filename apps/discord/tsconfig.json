@@ -7,11 +7,16 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["src"],
+  "exclude": ["src/**/*.test.ts"],
   "references": [
     { "path": "../../packages/audit" },
     { "path": "../../packages/config" },
     { "path": "../../packages/contracts" },
     { "path": "../../packages/db" },
-    { "path": "../../packages/identity" }
+    { "path": "../../packages/identity" },
+    { "path": "../../packages/knowledge" },
+    { "path": "../../packages/llm" },
+    { "path": "../../packages/memory" },
+    { "path": "../../packages/artifacts" }
   ]
 }

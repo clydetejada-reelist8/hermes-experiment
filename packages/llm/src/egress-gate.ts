@@ -23,7 +23,10 @@ const EGRESS_PATTERNS: { type: string; pattern: RegExp }[] = [
   { type: "API_KEY", pattern: /\bsk-[a-zA-Z0-9]{20,}\b/ },
   { type: "PASSWORD", pattern: /\bpassword\s*(?:[:=]|is)\s*\S+/i },
   { type: "PRIVATE_KEY", pattern: /\bBEGIN\s+(RSA|EC|OPENSSH|PGP)\s+PRIVATE\s+KEY\b/ },
-  { type: "BANK_ACCOUNT", pattern: /\b\d{9,12}\b/ },
+  {
+    type: "BANK_ACCOUNT",
+    pattern: /\b(?:account|acct|routing)\s*(?:no\.?|number|#)?\s*[:=]?\s*\d{9,12}\b/i,
+  },
 ];
 
 /**
