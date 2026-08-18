@@ -65,4 +65,26 @@ pnpm test:security
 
 See the implementation plan for the staging deployment sequence and the
 definition of done. PostgreSQL is required to run database-backed tests and the
-API; the current VPS does not have PostgreSQL running yet.
+API.
+
+## Local staging verification
+
+The full integration suite requires Docker access and the three local services:
+
+```bash
+sudo usermod -aG docker "$USER"
+newgrp docker
+cp .env.example .env
+# Replace INTERNAL_SERVICE_TOKEN and TOKEN_ENCRYPTION_KEY with local values.
+docker compose up -d postgres redis minio
+set -a; . ./.env; set +a
+npx prisma@6.2.1 migrate reset --force --skip-seed --schema packages/db/prisma/schema.prisma
+HERMES_ALLOW_DATABASE_RESET=1 ./node_modules/.bin/vitest run
+```
+
+The database reset command is intentionally destructive and must only be used
+against the isolated `hermes_staging` database. Never point it at production.
+
+If Docker access was granted during the current login session, use `newgrp
+docker` or start a new shell before running Compose. Do not make the Docker
+socket world-writable.
