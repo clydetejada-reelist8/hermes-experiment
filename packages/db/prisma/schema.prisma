@@ -768,3 +768,10 @@ model FeatureFlag {
   updatedAt DateTime @updatedAt
   updatedBy String?
 }
+
+model RetentionPolicy {
+  key           String   @id
+  retentionDays Int
+  updatedAt     DateTime @updatedAt
+  updatedBy     String?
+}

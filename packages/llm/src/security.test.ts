@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  detectPromptInjection,
-  sanitizeForLLM,
-  validateUrl,
-} from "./security.js";
+import { detectPromptInjection, sanitizeForLLM, validateUrl } from "./security.js";
 
 describe("detectPromptInjection", () => {
   it("detects 'ignore previous instructions' pattern", () => {

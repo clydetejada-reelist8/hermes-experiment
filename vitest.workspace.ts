@@ -22,6 +22,7 @@ const alias: Record<string, string> = {
   "@hermes/observability": fileURLToPath(
     new URL("./packages/observability/src/index.ts", import.meta.url),
   ),
+  "@hermes/admin": fileURLToPath(new URL("./packages/admin/src/index.ts", import.meta.url)),
 };
 
 const shared = { resolve: { alias } };

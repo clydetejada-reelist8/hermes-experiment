@@ -32,4 +32,5 @@ export type {
   Reminder,
   AuditEvent,
   FeatureFlag,
+  RetentionPolicy,
 } from "./generated/client/index.js";
