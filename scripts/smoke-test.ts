@@ -17,7 +17,7 @@
  */
 
 const API_URL = process.argv[2] ?? "http://localhost:3000";
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? "test-internal-api-key";
+const INTERNAL_API_KEY = process.env.INTERNAL_SERVICE_TOKEN ?? "test-internal-api-key";
 
 interface CheckResult {
   name: string;
@@ -44,8 +44,8 @@ async function checkApiHealth(): Promise<CheckResult> {
 
 async function checkInternalAuth(): Promise<CheckResult> {
   try {
-    const res = await fetch(`${API_URL}/internal/health`, {
-      headers: { "x-internal-api-key": INTERNAL_API_KEY },
+    const res = await fetch(`${API_URL}/v1/health`, {
+      headers: { Authorization: `Bearer ${INTERNAL_API_KEY}` },
     });
     if (res.ok) {
       return { name: "Internal Auth", passed: true, detail: `status=${res.status}` };
@@ -62,8 +62,8 @@ async function checkInternalAuth(): Promise<CheckResult> {
 
 async function checkInternalAuthRejectsBadKey(): Promise<CheckResult> {
   try {
-    const res = await fetch(`${API_URL}/internal/health`, {
-      headers: { "x-internal-api-key": "wrong-key" },
+    const res = await fetch(`${API_URL}/v1/health`, {
+      headers: { Authorization: "Bearer wrong-key" },
     });
     if (res.status === 401) {
       return { name: "Internal Auth Reject", passed: true, detail: "correctly rejected bad key" };
@@ -136,7 +136,7 @@ async function checkRedisViaUrl(): Promise<CheckResult> {
 }
 
 async function checkS3(): Promise<CheckResult> {
-  const s3Endpoint = process.env.S3_ENDPOINT ?? "http://localhost:9000";
+  const s3Endpoint = process.env.OBJECT_STORAGE_ENDPOINT ?? "http://localhost:9000";
   try {
     const res = await fetch(`${s3Endpoint}/minio/health/live`);
     if (res.ok || res.status === 200) {

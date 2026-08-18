@@ -1,8 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { GmailActionExecutor, type GmailProvider } from "./gmail.js";
+import { db } from "@hermes/db";
+import { GmailActionExecutor, type GmailProvider, AmbiguousOutcomeError } from "./gmail.js";
 import { transitionAction } from "./state-machine.js";
+import { recordConfirmation } from "./confirmation.js";
 import { createEmployee } from "../../../test/fixtures/db-helpers.js";
+
+async function enableGmailSendFlag(): Promise<void> {
+  await db.featureFlag.upsert({
+    where: { key: "gmail_send_enabled" },
+    create: { key: "gmail_send_enabled", enabled: true, updatedBy: "test" },
+    update: { enabled: true, updatedBy: "test" },
+  });
+}
 
 class MockGmailProvider implements GmailProvider {
   drafts: Map<string, { to: string; subject: string; body: string }> = new Map();
@@ -29,7 +39,7 @@ class MockGmailProvider implements GmailProvider {
 
   async sendDraft(draftId: string): Promise<{ messageId: string }> {
     if (this.shouldTimeout) {
-      throw new Error("TIMEOUT");
+      throw new AmbiguousOutcomeError("TIMEOUT", "ETIMEDOUT");
     }
     const messageId = `msg-${randomUUID()}`;
     this.sentMessages.set(messageId, { draftId, messageId });
@@ -70,6 +80,7 @@ describe("GmailActionExecutor", () => {
 
     const updatedAction = await executor.updateDraftAction({
       actionId: draftAction.id,
+      idempotencyKey: randomUUID(),
       to: "test@example.com",
       subject: "Updated Subject",
       body: "Updated body",
@@ -83,6 +94,7 @@ describe("GmailActionExecutor", () => {
     const emp = await createEmployee();
     const provider = new MockGmailProvider();
     const executor = new GmailActionExecutor(provider);
+    await enableGmailSendFlag();
 
     const draftAction = await executor.createDraftAction({
       employeeId: emp.id,
@@ -102,7 +114,12 @@ describe("GmailActionExecutor", () => {
     expect(sendAction.status).toBe("AWAITING_CONFIRMATION");
     expect(sendAction.confirmationRequired).toBe(true);
 
-    // Confirm and execute
+    // Record a valid confirmation and execute
+    await recordConfirmation(
+      sendAction.id,
+      emp.id,
+      sendAction.parametersJson as Record<string, unknown>,
+    );
     await transitionAction(sendAction.id, "EXECUTING");
     const result = await executor.executeSend(sendAction.id);
 
@@ -110,69 +127,11 @@ describe("GmailActionExecutor", () => {
     expect(result.externalResourceId).toBeTruthy();
   });
 
-  it("marks send as OUTCOME_UNKNOWN on timeout", async () => {
-    const emp = await createEmployee();
-    const provider = new MockGmailProvider();
-    provider.shouldTimeout = true;
-    const executor = new GmailActionExecutor(provider);
-
-    const draftAction = await executor.createDraftAction({
-      employeeId: emp.id,
-      idempotencyKey: randomUUID(),
-      to: "test@example.com",
-      subject: "Timeout test",
-      body: "This will timeout",
-    });
-
-    const sendAction = await executor.sendDraftAction({
-      employeeId: emp.id,
-      draftActionId: draftAction.id,
-      idempotencyKey: randomUUID(),
-    });
-
-    await transitionAction(sendAction.id, "EXECUTING");
-    const result = await executor.executeSend(sendAction.id);
-
-    expect(result.status).toBe("OUTCOME_UNKNOWN");
-  });
-
-  it("can reconcile OUTCOME_UNKNOWN to SUCCEEDED after timeout", async () => {
-    const emp = await createEmployee();
-    const provider = new MockGmailProvider();
-    provider.shouldTimeout = true;
-    const executor = new GmailActionExecutor(provider);
-
-    const draftAction = await executor.createDraftAction({
-      employeeId: emp.id,
-      idempotencyKey: randomUUID(),
-      to: "test@example.com",
-      subject: "Reconcile test",
-      body: "Will be reconciled",
-    });
-
-    const sendAction = await executor.sendDraftAction({
-      employeeId: emp.id,
-      draftActionId: draftAction.id,
-      idempotencyKey: randomUUID(),
-    });
-
-    await transitionAction(sendAction.id, "EXECUTING");
-    await executor.executeSend(sendAction.id);
-
-    // Reconcile: the email was actually sent despite the timeout
-    const reconciled = await executor.reconcileSend(sendAction.id, {
-      finalStatus: "SUCCEEDED",
-      externalResourceId: "msg-reconciled-123",
-    });
-
-    expect(reconciled.status).toBe("SUCCEEDED");
-    expect(reconciled.reconciledAt).toBeTruthy();
-  });
-
-  it("does not allow sending without confirmation for HIGH risk", async () => {
+  it("blocks send without a confirmation", async () => {
     const emp = await createEmployee();
     const provider = new MockGmailProvider();
     const executor = new GmailActionExecutor(provider);
+    await enableGmailSendFlag();
 
     const draftAction = await executor.createDraftAction({
       employeeId: emp.id,
@@ -188,10 +147,107 @@ describe("GmailActionExecutor", () => {
       idempotencyKey: randomUUID(),
     });
 
-    // The send action should be AWAITING_CONFIRMATION, not EXECUTING
     expect(sendAction.status).toBe("AWAITING_CONFIRMATION");
 
-    // Trying to execute without confirming should fail
+    // Transition to EXECUTING without recording a confirmation
+    await transitionAction(sendAction.id, "EXECUTING");
     await expect(executor.executeSend(sendAction.id)).rejects.toThrow();
+  });
+
+  it("blocks send when confirmation hash does not match parameters", async () => {
+    const emp = await createEmployee();
+    const provider = new MockGmailProvider();
+    const executor = new GmailActionExecutor(provider);
+    await enableGmailSendFlag();
+
+    const draftAction = await executor.createDraftAction({
+      employeeId: emp.id,
+      idempotencyKey: randomUUID(),
+      to: "test@example.com",
+      subject: "Hash test",
+      body: "Original body",
+    });
+
+    const sendAction = await executor.sendDraftAction({
+      employeeId: emp.id,
+      draftActionId: draftAction.id,
+      idempotencyKey: randomUUID(),
+    });
+
+    // Record a confirmation with DIFFERENT parameters (simulating parameter change after confirmation)
+    await recordConfirmation(sendAction.id, emp.id, { draftId: "different-draft-id" });
+    await transitionAction(sendAction.id, "EXECUTING");
+    await expect(executor.executeSend(sendAction.id)).rejects.toThrow();
+  });
+
+  it("marks send as OUTCOME_UNKNOWN on timeout", async () => {
+    const emp = await createEmployee();
+    const provider = new MockGmailProvider();
+    provider.shouldTimeout = true;
+    const executor = new GmailActionExecutor(provider);
+    await enableGmailSendFlag();
+
+    const draftAction = await executor.createDraftAction({
+      employeeId: emp.id,
+      idempotencyKey: randomUUID(),
+      to: "test@example.com",
+      subject: "Timeout test",
+      body: "This will timeout",
+    });
+
+    const sendAction = await executor.sendDraftAction({
+      employeeId: emp.id,
+      draftActionId: draftAction.id,
+      idempotencyKey: randomUUID(),
+    });
+
+    await recordConfirmation(
+      sendAction.id,
+      emp.id,
+      sendAction.parametersJson as Record<string, unknown>,
+    );
+    await transitionAction(sendAction.id, "EXECUTING");
+    const result = await executor.executeSend(sendAction.id);
+
+    expect(result.status).toBe("OUTCOME_UNKNOWN");
+  });
+
+  it("can reconcile OUTCOME_UNKNOWN to SUCCEEDED after timeout", async () => {
+    const emp = await createEmployee();
+    const provider = new MockGmailProvider();
+    provider.shouldTimeout = true;
+    const executor = new GmailActionExecutor(provider);
+    await enableGmailSendFlag();
+
+    const draftAction = await executor.createDraftAction({
+      employeeId: emp.id,
+      idempotencyKey: randomUUID(),
+      to: "test@example.com",
+      subject: "Reconcile test",
+      body: "Will be reconciled",
+    });
+
+    const sendAction = await executor.sendDraftAction({
+      employeeId: emp.id,
+      draftActionId: draftAction.id,
+      idempotencyKey: randomUUID(),
+    });
+
+    await recordConfirmation(
+      sendAction.id,
+      emp.id,
+      sendAction.parametersJson as Record<string, unknown>,
+    );
+    await transitionAction(sendAction.id, "EXECUTING");
+    await executor.executeSend(sendAction.id);
+
+    // Reconcile: the email was actually sent despite the timeout
+    const reconciled = await executor.reconcileSend(sendAction.id, {
+      finalStatus: "SUCCEEDED",
+      externalResourceId: "msg-reconciled-123",
+    });
+
+    expect(reconciled.status).toBe("SUCCEEDED");
+    expect(reconciled.reconciledAt).toBeTruthy();
   });
 });

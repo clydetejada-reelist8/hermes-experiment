@@ -19,6 +19,8 @@
     "@hermes/contracts": "workspace:*",
     "@hermes/db": "workspace:*",
     "@hermes/knowledge": "workspace:*",
-    "@hermes/memory": "workspace:*"
+    "@hermes/memory": "workspace:*",
+    "openai": "^7.5.0",
+    "zod": "^3.25.76"
   }
 }

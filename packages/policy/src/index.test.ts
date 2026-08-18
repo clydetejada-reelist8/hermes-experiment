@@ -1,8 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import { randomUUID } from "node:crypto";
 import { db } from "@hermes/db";
 import type { Capability } from "@hermes/contracts";
-import { evaluateCapability, evaluateHermesScope } from "./index.js";
+import {
+  canExecuteAction,
+  canPrepareAction,
+  evaluateCapability,
+  evaluateHermesScope,
+  requiresConfirmation,
+} from "./index.js";
 
 async function seedEmployeeWithCapabilities(
   capabilities: Capability[],
@@ -143,5 +149,79 @@ describe("evaluateHermesScope", () => {
     });
     expect(decision.allowed).toBe(false);
     expect(decision.reasonCode).toBe("MISSING_CAPABILITY");
+  });
+});
+
+describe("canPrepareAction", () => {
+  it("allows GMAIL_CREATE_DRAFT with the GMAIL_DRAFT capability", async () => {
+    const emp = await seedEmployeeWithCapabilities(["GMAIL_DRAFT"]);
+    const decision = await canPrepareAction(emp.id, "GMAIL_CREATE_DRAFT");
+    expect(decision.allowed).toBe(true);
+    expect(decision.reasonCode).toBe("ALLOWED");
+  });
+
+  it("denies GMAIL_CREATE_DRAFT without the GMAIL_DRAFT capability", async () => {
+    const emp = await seedEmployeeWithCapabilities([]);
+    const decision = await canPrepareAction(emp.id, "GMAIL_CREATE_DRAFT");
+    expect(decision.allowed).toBe(false);
+    expect(decision.reasonCode).toBe("MISSING_CAPABILITY");
+  });
+
+  it("allows GMAIL_SEND_DRAFT with the GMAIL_SEND capability", async () => {
+    const emp = await seedEmployeeWithCapabilities(["GMAIL_SEND"]);
+    const decision = await canPrepareAction(emp.id, "GMAIL_SEND_DRAFT");
+    expect(decision.allowed).toBe(true);
+    expect(decision.reasonCode).toBe("ALLOWED");
+  });
+});
+
+describe("canExecuteAction", () => {
+  const originalAllowlist = process.env.STAGING_EMAIL_RECIPIENT_ALLOWLIST;
+  afterEach(() => {
+    if (originalAllowlist === undefined) {
+      delete process.env.STAGING_EMAIL_RECIPIENT_ALLOWLIST;
+    } else {
+      process.env.STAGING_EMAIL_RECIPIENT_ALLOWLIST = originalAllowlist;
+    }
+  });
+
+  it("denies GMAIL_SEND_DRAFT with a non-allowlisted recipient", async () => {
+    const emp = await seedEmployeeWithCapabilities(["GMAIL_SEND"]);
+    process.env.STAGING_EMAIL_RECIPIENT_ALLOWLIST = "allowed@example.com";
+    const decision = await canExecuteAction(emp.id, "GMAIL_SEND_DRAFT", {
+      draftId: "draft-1",
+      to: "blocked@example.com",
+    });
+    expect(decision.allowed).toBe(false);
+    expect(decision.reasonCode).toBe("RECIPIENT_NOT_ALLOWLISTED");
+  });
+
+  it("allows GMAIL_SEND_DRAFT with an allowlisted recipient", async () => {
+    const emp = await seedEmployeeWithCapabilities(["GMAIL_SEND"]);
+    process.env.STAGING_EMAIL_RECIPIENT_ALLOWLIST = "allowed@example.com";
+    const decision = await canExecuteAction(emp.id, "GMAIL_SEND_DRAFT", {
+      draftId: "draft-1",
+      to: "allowed@example.com",
+    });
+    expect(decision.allowed).toBe(true);
+    expect(decision.reasonCode).toBe("ALLOWED");
+  });
+});
+
+describe("requiresConfirmation", () => {
+  it("returns true for GMAIL_SEND_DRAFT", () => {
+    expect(requiresConfirmation("GMAIL_SEND_DRAFT")).toBe(true);
+  });
+
+  it("returns true for CALENDAR_CREATE_MEETING", () => {
+    expect(requiresConfirmation("CALENDAR_CREATE_MEETING")).toBe(true);
+  });
+
+  it("returns false for GMAIL_CREATE_DRAFT", () => {
+    expect(requiresConfirmation("GMAIL_CREATE_DRAFT")).toBe(false);
+  });
+
+  it("returns false for CALENDAR_FREEBUSY", () => {
+    expect(requiresConfirmation("CALENDAR_FREEBUSY")).toBe(false);
   });
 });

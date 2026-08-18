@@ -11,15 +11,24 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@hermes/actions": "workspace:*",
+    "@hermes/admin": "workspace:*",
+    "@hermes/artifacts": "workspace:*",
     "@hermes/audit": "workspace:*",
     "@hermes/config": "workspace:*",
     "@hermes/contracts": "workspace:*",
+    "@hermes/conversations": "workspace:*",
     "@hermes/db": "workspace:*",
+    "@hermes/google": "workspace:*",
     "@hermes/identity": "workspace:*",
     "@hermes/knowledge": "workspace:*",
     "@hermes/llm": "workspace:*",
     "@hermes/memory": "workspace:*",
-    "@hermes/artifacts": "workspace:*",
-    "discord.js": "^14.16.3"
+    "@hermes/observability": "workspace:*",
+    "@hermes/policy": "workspace:*",
+    "@hermes/ssot": "workspace:*",
+    "@hermes/storage": "workspace:*",
+    "discord.js": "^14.16.3",
+    "zod": "^4.4.3"
   }
 }

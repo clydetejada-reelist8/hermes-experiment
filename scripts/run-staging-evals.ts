@@ -21,7 +21,7 @@ import { detectPromptInjection, validateUrl } from "@hermes/llm";
 import { parseActionProposal, validateProposal } from "@hermes/actions";
 
 const API_URL = process.argv[2] ?? "http://localhost:3000";
-const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY ?? "test-internal-api-key";
+const INTERNAL_API_KEY = process.env.INTERNAL_SERVICE_TOKEN ?? "test-internal-api-key";
 
 interface EvalCase {
   name: string;
@@ -177,11 +177,11 @@ async function runEvalAgainstApi(
 
   // For quality evals, try to call the API
   try {
-    const res = await fetch(`${API_URL}/internal/ask`, {
+    const res = await fetch(`${API_URL}/v1/ask`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-internal-api-key": INTERNAL_API_KEY,
+        Authorization: `Bearer ${INTERNAL_API_KEY}`,
       },
       body: JSON.stringify({ query: evalCase.query }),
     });

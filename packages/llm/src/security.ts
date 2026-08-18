@@ -23,6 +23,10 @@ const INJECTION_PATTERNS: { name: string; pattern: RegExp }[] = [
     name: "disregard_instructions",
     pattern: /disregard\s+(?:all\s+)?(?:previous|prior|above)\s+instructions?/i,
   },
+  {
+    name: "ignore_system_instructions",
+    pattern: /ignore\s+(?:all\s+)?system\s+instructions?/i,
+  },
   { name: "role_hijack", pattern: /you\s+are\s+now\s+(?:a|an)\s+/i },
   {
     name: "system_prompt_extraction",
@@ -37,6 +41,10 @@ const INJECTION_PATTERNS: { name: string; pattern: RegExp }[] = [
   {
     name: "pretend_mode",
     pattern: /pretend\s+(?:you\s+are|to be)\s+(?:a|an)\s+(?:different|unrestricted|unfiltered)/i,
+  },
+  {
+    name: "send_secrets",
+    pattern: /send\s+(?:secrets?|tokens?|credentials?|api\s+keys?)\s+to\s+/i,
   },
 ];
 

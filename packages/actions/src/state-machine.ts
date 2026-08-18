@@ -41,6 +41,16 @@ export interface CreateActionInput {
 }
 
 export async function createAction(input: CreateActionInput): Promise<Action> {
+  // Check for an existing action with the same idempotency key.
+  // This prevents duplicate action creation when the same request is
+  // submitted multiple times (e.g., duplicate Discord interactions).
+  if (input.idempotencyKey) {
+    const existing = await db.action.findFirst({
+      where: { idempotencyKey: input.idempotencyKey },
+    });
+    if (existing) return existing;
+  }
+
   return db.action.create({
     data: {
       employeeId: input.employeeId,

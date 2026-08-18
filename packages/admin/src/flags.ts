@@ -107,7 +107,7 @@ export async function applyRetentionPolicy(key: string): Promise<number> {
       return result.count;
     }
     case "messages": {
-      const result = await db.message.deleteMany({
+      const result = await db.conversationMessage.deleteMany({
         where: { createdAt: { lt: cutoff } },
       });
       return result.count;

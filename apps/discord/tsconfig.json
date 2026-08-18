@@ -17,6 +17,14 @@
     { "path": "../../packages/knowledge" },
     { "path": "../../packages/llm" },
     { "path": "../../packages/memory" },
-    { "path": "../../packages/artifacts" }
+    { "path": "../../packages/observability" },
+    { "path": "../../packages/artifacts" },
+    { "path": "../../packages/admin" },
+    { "path": "../../packages/actions" },
+    { "path": "../../packages/policy" },
+    { "path": "../../packages/conversations" },
+    { "path": "../../packages/google" },
+    { "path": "../../packages/ssot" },
+    { "path": "../../packages/storage" }
   ]
 }

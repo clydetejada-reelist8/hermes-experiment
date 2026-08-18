@@ -14,16 +14,22 @@ export interface CitationValidationResult {
  * This prevents hallucinated citations — the model cannot reference sources
  * it was not given. It also enforces that the answer contains at least one
  * citation (no uncited claims).
+ *
+ * Citation markers are [chunkId] where chunkId is a UUID (the format used
+ * by buildContext). We match UUID-like patterns to avoid false positives
+ * from arbitrary bracketed text like "[Note: ...]".
  */
+const CITATION_PATTERN = /\[([a-f0-9-]{36})\]/gi;
+
 export function validateCitations(
   answer: string,
   chunks: RetrievalResult[],
 ): CitationValidationResult {
-  // Extract all citation markers [xxx] from the answer.
-  const citationPattern = /\[([^\]]+)\]/g;
+  // Extract all citation markers [uuid] from the answer.
   const citedIds: string[] = [];
   let match: RegExpExecArray | null;
-  while ((match = citationPattern.exec(answer)) !== null) {
+  const pattern = new RegExp(CITATION_PATTERN.source, "gi");
+  while ((match = pattern.exec(answer)) !== null) {
     citedIds.push(match[1]!);
   }
 

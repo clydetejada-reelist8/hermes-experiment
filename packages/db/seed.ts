@@ -38,54 +38,76 @@ async function main(): Promise<void> {
 
   // --- Roles ---
   const adminRole = await db.role.upsert({
-    where: { name: "admin" },
-    create: { name: "admin" },
+    where: { key: "admin" },
+    create: { key: "admin", name: "Admin" },
     update: {},
   });
   const employeeRole = await db.role.upsert({
-    where: { name: "employee" },
-    create: { name: "employee" },
+    where: { key: "employee" },
+    create: { key: "employee", name: "Employee" },
     update: {},
   });
   const viewerRole = await db.role.upsert({
-    where: { name: "viewer" },
-    create: { name: "viewer" },
+    where: { key: "viewer" },
+    create: { key: "viewer", name: "Viewer" },
     update: {},
   });
 
-  // Role capabilities
+  // Role capabilities — using the Capability enum values from the schema.
   const adminCaps = [
-    "action.execute.high_risk",
-    "action.execute.medium_risk",
-    "action.execute.low_risk",
-    "ssot.propose",
-    "ssot.review",
-    "ssot.approve",
-    "admin.flags",
-    "admin.killswitch",
-    "admin.retention",
+    "SSOT_PROPOSE",
+    "SSOT_REVIEW",
+    "SSOT_APPROVE",
+    "HERMES_ADMIN",
+    "KNOWLEDGE_READ_PERSONAL",
+    "KNOWLEDGE_READ_TEAM",
+    "KNOWLEDGE_READ_COMPANY",
+    "ARTIFACT_UPLOAD",
+    "ARTIFACT_SHARE_TEAM",
+    "ARTIFACT_SHARE_COMPANY",
+    "MEMORY_READ_OWN",
+    "MEMORY_WRITE_OWN",
+    "GMAIL_DRAFT",
+    "GMAIL_SEND",
+    "CALENDAR_FREEBUSY",
+    "CALENDAR_CREATE_PERSONAL_EVENT",
+    "CALENDAR_INVITE_OTHERS",
+    "CALENDAR_UPDATE_EVENT",
+    "CALENDAR_CANCEL_EVENT",
   ];
-  const employeeCaps = ["action.execute.medium_risk", "action.execute.low_risk", "ssot.propose"];
-  const viewerCaps = ["action.execute.low_risk"];
+  const employeeCaps = [
+    "KNOWLEDGE_READ_PERSONAL",
+    "KNOWLEDGE_READ_TEAM",
+    "KNOWLEDGE_READ_COMPANY",
+    "ARTIFACT_UPLOAD",
+    "ARTIFACT_SHARE_TEAM",
+    "MEMORY_READ_OWN",
+    "MEMORY_WRITE_OWN",
+    "SSOT_PROPOSE",
+    "GMAIL_DRAFT",
+    "CALENDAR_FREEBUSY",
+    "CALENDAR_CREATE_PERSONAL_EVENT",
+  ];
+  const viewerCaps = ["KNOWLEDGE_READ_COMPANY", "MEMORY_READ_OWN"];
 
   for (const cap of adminCaps) {
     await db.roleCapability.upsert({
-      where: { roleId_capability: { roleId: adminRole.id, capability: cap } },
-      create: { roleId: adminRole.id, capability: cap },
+      where: { roleId_capability: { roleId: adminRole.id, capability: cap as never } },
+      create: { roleId: adminRole.id, capability: cap as never },
       update: {},
     });
   }
   for (const cap of employeeCaps) {
     await db.roleCapability.upsert({
-      where: { roleId_capability: { roleId: employeeRole.id, capability: cap } },
-      create: { roleId: employeeRole.id, capability: cap },
+      where: { roleId_capability: { roleId: employeeRole.id, capability: cap as never } },
+      create: { roleId: employeeRole.id, capability: cap as never },
       update: {},
     });
   }
   for (const cap of viewerCaps) {
     await db.roleCapability.upsert({
-      where: { roleId_capability: { roleId: viewerRole.id, capability: cap } },
-      create: { roleId: viewerRole.id, capability: cap },
+      where: { roleId_capability: { roleId: viewerRole.id, capability: cap as never } },
+      create: { roleId: viewerRole.id, capability: cap as never },
       update: {},
     });
   }
@@ -93,32 +115,96 @@ async function main(): Promise<void> {
   console.log(`  Roles: ${adminRole.name}, ${employeeRole.name}, ${viewerRole.name}`);
 
   // --- Employees ---
+  // Employee requires: employeeCode, displayName, companyEmail, timezone.
+  // Discord identity is linked via ExternalIdentity.
   const alice = await db.employee.upsert({
-    where: { discordId: "111111111111111111" },
+    where: { employeeCode: "EMP-0001" },
     create: {
-      discordId: "111111111111111111",
-      discordUsername: "alice_admin",
+      employeeCode: "EMP-0001",
       displayName: "Alice Admin",
+      companyEmail: "alice@reelist8.example",
+      timezone: "Asia/Manila",
+      stagingAllowlisted: true,
+      employmentStatus: "ACTIVE",
     },
-    update: { discordUsername: "alice_admin", displayName: "Alice Admin" },
+    update: {
+      displayName: "Alice Admin",
+      companyEmail: "alice@reelist8.example",
+      stagingAllowlisted: true,
+      employmentStatus: "ACTIVE",
+    },
   });
   const bob = await db.employee.upsert({
-    where: { discordId: "222222222222222222" },
+    where: { employeeCode: "EMP-0002" },
     create: {
-      discordId: "222222222222222222",
-      discordUsername: "bob_engineer",
+      employeeCode: "EMP-0002",
       displayName: "Bob Engineer",
+      companyEmail: "bob@reelist8.example",
+      timezone: "Asia/Manila",
+      stagingAllowlisted: true,
+      employmentStatus: "ACTIVE",
     },
-    update: { discordUsername: "bob_engineer", displayName: "Bob Engineer" },
+    update: {
+      displayName: "Bob Engineer",
+      companyEmail: "bob@reelist8.example",
+      stagingAllowlisted: true,
+      employmentStatus: "ACTIVE",
+    },
   });
   const carol = await db.employee.upsert({
-    where: { discordId: "333333333333333333" },
+    where: { employeeCode: "EMP-0003" },
     create: {
-      discordId: "333333333333333333",
-      discordUsername: "carol_sales",
+      employeeCode: "EMP-0003",
       displayName: "Carol Sales",
+      companyEmail: "carol@reelist8.example",
+      timezone: "Asia/Manila",
+      stagingAllowlisted: true,
+      employmentStatus: "ACTIVE",
     },
-    update: { discordUsername: "carol_sales", displayName: "Carol Sales" },
+    update: {
+      displayName: "Carol Sales",
+      companyEmail: "carol@reelist8.example",
+      stagingAllowlisted: true,
+      employmentStatus: "ACTIVE",
+    },
+  });
+
+  // Link Discord identities
+  await db.externalIdentity.upsert({
+    where: {
+      provider_providerSubjectId: { provider: "DISCORD", providerSubjectId: "111111111111111111" },
+    },
+    create: {
+      employeeId: alice.id,
+      provider: "DISCORD",
+      providerSubjectId: "111111111111111111",
+      verifiedAt: new Date(),
+    },
+    update: { employeeId: alice.id, verifiedAt: new Date() },
+  });
+  await db.externalIdentity.upsert({
+    where: {
+      provider_providerSubjectId: { provider: "DISCORD", providerSubjectId: "222222222222222222" },
+    },
+    create: {
+      employeeId: bob.id,
+      provider: "DISCORD",
+      providerSubjectId: "222222222222222222",
+      verifiedAt: new Date(),
+    },
+    update: { employeeId: bob.id, verifiedAt: new Date() },
+  });
+  await db.externalIdentity.upsert({
+    where: {
+      provider_providerSubjectId: { provider: "DISCORD", providerSubjectId: "333333333333333333" },
+    },
+    create: {
+      employeeId: carol.id,
+      provider: "DISCORD",
+      providerSubjectId: "333333333333333333",
+      verifiedAt: new Date(),
+    },
+    update: { employeeId: carol.id, verifiedAt: new Date() },
   });
 
   // Assign roles
@@ -159,65 +245,95 @@ async function main(): Promise<void> {
 
   // --- Projects ---
   const projectAlpha = await db.project.upsert({
-    where: { name: "Project Alpha" },
-    create: { name: "Project Alpha", description: "Main product development" },
+    where: { key: "PROJ-ALPHA" },
+    create: { key: "PROJ-ALPHA", name: "Project Alpha", status: "ACTIVE" },
     update: {},
   });
   const projectBeta = await db.project.upsert({
-    where: { name: "Project Beta" },
-    create: { name: "Project Beta", description: "Internal tooling" },
+    where: { key: "PROJ-BETA" },
+    create: { key: "PROJ-BETA", name: "Project Beta", status: "ACTIVE" },
     update: {},
   });
 
   await db.projectMember.upsert({
-    where: { projectId_employeeId: { projectId: projectAlpha.id, employeeId: alice.id } },
-    create: { projectId: projectAlpha.id, employeeId: alice.id },
+    where: { employeeId_projectId: { employeeId: alice.id, projectId: projectAlpha.id } },
+    create: { employeeId: alice.id, projectId: projectAlpha.id },
     update: {},
   });
   await db.projectMember.upsert({
-    where: { projectId_employeeId: { projectId: projectAlpha.id, employeeId: bob.id } },
-    create: { projectId: projectAlpha.id, employeeId: bob.id },
+    where: { employeeId_projectId: { employeeId: bob.id, projectId: projectAlpha.id } },
+    create: { employeeId: bob.id, projectId: projectAlpha.id },
     update: {},
   });
   await db.projectMember.upsert({
-    where: { projectId_employeeId: { projectId: projectBeta.id, employeeId: carol.id } },
-    create: { projectId: projectBeta.id, employeeId: carol.id },
+    where: { employeeId_projectId: { employeeId: carol.id, projectId: projectBeta.id } },
+    create: { employeeId: carol.id, projectId: projectBeta.id },
     update: {},
   });
 
   console.log(`  Projects: ${projectAlpha.name}, ${projectBeta.name}`);
 
   // --- Authority Domains ---
-  const engineeringDomain = await db.authorityDomain.upsert({
+  // AuthorityDomain uses `domain` as the primary key.
+  await db.authorityDomain.upsert({
     where: { domain: "engineering.internal" },
+    create: { domain: "engineering.internal" },
+    update: {},
+  });
+  await db.authorityDomain.upsert({
+    where: { domain: "sales.internal" },
+    create: { domain: "sales.internal" },
+    update: {},
+  });
+
+  // Grant DomainAuthority to Alice for engineering, Carol for sales.
+  await db.domainAuthority.upsert({
+    where: {
+      authorityDomain_employeeId_permission: {
+        authorityDomain: "engineering.internal",
+        employeeId: alice.id,
+        permission: "APPROVE",
+      },
+    },
     create: {
-      domain: "engineering.internal",
-      description: "Engineering decisions and technical standards",
-      ownerEmployeeId: alice.id,
+      authorityDomain: "engineering.internal",
+      employeeId: alice.id,
+      permission: "APPROVE",
     },
     update: {},
   });
-  const salesDomain = await db.authorityDomain.upsert({
-    where: { domain: "sales.internal" },
+  await db.domainAuthority.upsert({
+    where: {
+      authorityDomain_employeeId_permission: {
+        authorityDomain: "sales.internal",
+        employeeId: carol.id,
+        permission: "APPROVE",
+      },
+    },
     create: {
-      domain: "sales.internal",
-      description: "Sales processes and customer relationships",
-      ownerEmployeeId: carol.id,
+      authorityDomain: "sales.internal",
+      employeeId: carol.id,
+      permission: "APPROVE",
     },
     update: {},
   });
 
-  console.log(`  Authority domains: ${engineeringDomain.domain}, ${salesDomain.domain}`);
+  console.log(`  Authority domains: engineering.internal, sales.internal`);
 
   // --- Feature flags (all disabled by default) ---
   const flags = [
-    "gmail_actions",
-    "calendar_actions",
-    "reminders",
-    "ssot_proposals",
-    "contradiction_detection",
-    "nl_action_proposals",
-    "source_sync",
+    "hermes_enabled",
+    "ask_enabled",
+    "uploads_enabled",
+    "memory_enabled",
+    "drive_enabled",
+    "ssot_enabled",
+    "gmail_draft_enabled",
+    "gmail_send_enabled",
+    "calendar_read_enabled",
+    "calendar_write_enabled",
+    "reminders_enabled",
+    "llm_actions_enabled",
   ];
   for (const key of flags) {
     await db.featureFlag.upsert({

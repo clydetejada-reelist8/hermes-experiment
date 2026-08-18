@@ -32,6 +32,21 @@ const RawEnvSchema = z.object({
   OPENAI_API_KEY: z.string().min(1),
   OPENAI_REASONING_MODEL: z.string().min(1),
   OPENAI_EMBEDDING_MODEL: z.string().min(1),
+  // Optional. When set, both LLM and embedding calls target this
+  // OpenAI-compatible base URL instead of OpenAI's servers. Shorthand for
+  // setting both OPENAI_LLM_BASE_URL and OPENAI_EMBEDDING_BASE_URL.
+  OPENAI_BASE_URL: z.string().url().optional(),
+  // Optional. Base URL for chat completions only. Overrides OPENAI_BASE_URL.
+  // Use this when the chat provider doesn't support embeddings (e.g. a
+  // ChatGPT/Codex subscription endpoint).
+  OPENAI_LLM_BASE_URL: z.string().url().optional(),
+  // Optional. Base URL for embeddings only. Overrides OPENAI_BASE_URL.
+  // Use this when the embedding provider differs from the chat provider.
+  OPENAI_EMBEDDING_BASE_URL: z.string().url().optional(),
+  // Optional. Separate API key for the LLM client. Falls back to OPENAI_API_KEY.
+  OPENAI_LLM_API_KEY: z.string().min(1).optional(),
+  // Optional. Separate API key for the embedding client. Falls back to OPENAI_API_KEY.
+  OPENAI_EMBEDDING_API_KEY: z.string().min(1).optional(),
   UPLOAD_MAX_BYTES: z.coerce.number().int().positive(),
   SOURCE_ACCESS_CACHE_TTL_SECONDS: z.coerce.number().int().nonnegative(),
   STAGING_GOOGLE_HOSTED_DOMAIN: z.string().default(""),
@@ -67,6 +82,11 @@ export interface AppConfig {
   openaiApiKey: string;
   openaiReasoningModel: string;
   openaiEmbeddingModel: string;
+  openaiBaseUrl?: string;
+  openaiLlmBaseUrl?: string;
+  openaiEmbeddingBaseUrl?: string;
+  openaiLlmApiKey?: string;
+  openaiEmbeddingApiKey?: string;
   uploadMaxBytes: number;
   sourceAccessCacheTtlSeconds: number;
   stagingGoogleHostedDomain: string;
@@ -101,6 +121,11 @@ function toAppConfig(raw: RawEnv): AppConfig {
     openaiApiKey: raw.OPENAI_API_KEY,
     openaiReasoningModel: raw.OPENAI_REASONING_MODEL,
     openaiEmbeddingModel: raw.OPENAI_EMBEDDING_MODEL,
+    openaiBaseUrl: raw.OPENAI_BASE_URL,
+    openaiLlmBaseUrl: raw.OPENAI_LLM_BASE_URL,
+    openaiEmbeddingBaseUrl: raw.OPENAI_EMBEDDING_BASE_URL,
+    openaiLlmApiKey: raw.OPENAI_LLM_API_KEY,
+    openaiEmbeddingApiKey: raw.OPENAI_EMBEDDING_API_KEY,
     uploadMaxBytes: raw.UPLOAD_MAX_BYTES,
     sourceAccessCacheTtlSeconds: raw.SOURCE_ACCESS_CACHE_TTL_SECONDS,
     stagingGoogleHostedDomain: raw.STAGING_GOOGLE_HOSTED_DOMAIN,
