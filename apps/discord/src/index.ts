@@ -1,10 +1,4 @@
-import {
-  ChannelType,
-  Client,
-  GatewayIntentBits,
-  type Channel,
-  type TextChannel,
-} from "discord.js";
+import { ChannelType, Client, GatewayIntentBits, type Channel, type TextChannel } from "discord.js";
 import { loadConfig } from "@hermes/config";
 import { tryClaimInboundEvent } from "./dedup.js";
 import {

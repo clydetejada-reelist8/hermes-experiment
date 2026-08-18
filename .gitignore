@@ -8,5 +8,9 @@ coverage/
 *.tsbuildinfo
 prisma/migrations/dev.db*
 packages/db/src/generated/
+test/fixtures/*.js
+test/fixtures/*.js.map
+test/fixtures/*.d.ts
+test/fixtures/*.d.ts.map
 *.log
 .DS_Store

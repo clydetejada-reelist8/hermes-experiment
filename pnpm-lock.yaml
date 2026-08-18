@@ -98,6 +98,18 @@ importers:
 
   packages/contracts: {}
 
+  packages/conversations:
+    dependencies:
+      "@hermes/audit":
+        specifier: workspace:*
+        version: link:../audit
+      "@hermes/contracts":
+        specifier: workspace:*
+        version: link:../contracts
+      "@hermes/db":
+        specifier: workspace:*
+        version: link:../db
+
   packages/db:
     dependencies:
       "@prisma/client":
