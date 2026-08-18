@@ -20,3 +20,13 @@ export type {
   UpdateDraftActionInput,
   SendDraftActionInput,
 } from "./gmail.js";
+export { CalendarActionExecutor } from "./calendar.js";
+export type {
+  CalendarProvider,
+  FreeBusyInput,
+  FreeBusyResult,
+  CreateEventInput,
+  CreateMeetingInput,
+  UpdateEventInput,
+  CancelEventInput,
+} from "./calendar.js";
