@@ -225,4 +225,37 @@ describe("internal auth", () => {
     expect(requestedEmployeeId).toBe("reviewer-1");
     await app.close();
   });
+
+  it("allows an authenticated reviewer to approve a pending proposal", async () => {
+    let actionInput: unknown;
+    const app = await buildServer({
+      internalServiceToken: "test-token",
+      resolveDiscordIdentity: async () => ({
+        id: "reviewer-1",
+        employeeCode: "RL8-EMP-0002",
+        displayName: "Reviewer",
+        discordUserId: "discord-reviewer",
+      }),
+      approveSSOTProposal: async (input) => {
+        actionInput = input;
+        return { proposalId: input.proposalId, status: "APPROVED", ssotVersionId: "version-1" };
+      },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/ssot/proposals/proposal-1/approve",
+      headers: { authorization: "Bearer test-token" },
+      payload: { discordUserId: "discord-reviewer" },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      proposalId: "proposal-1",
+      status: "APPROVED",
+      ssotVersionId: "version-1",
+    });
+    expect(actionInput).toEqual({ proposalId: "proposal-1", employeeId: "reviewer-1" });
+    await app.close();
+  });
 });
