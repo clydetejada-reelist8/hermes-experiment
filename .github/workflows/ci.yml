@@ -38,6 +38,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://hermes:hermes@localhost:5432/hermes_staging
+      HERMES_ALLOW_DATABASE_RESET: "1"
       REDIS_URL: redis://localhost:6379
       S3_ENDPOINT: http://localhost:9000
       S3_ACCESS_KEY: hermes

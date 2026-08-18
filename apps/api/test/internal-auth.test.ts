@@ -122,4 +122,58 @@ describe("internal auth", () => {
     expect(calls).toBe(1);
     await app.close();
   });
+
+  it("accepts an authenticated document upload without publishing it as SSOT", async () => {
+    let received: unknown;
+    const app = await buildServer({
+      internalServiceToken: "test-token",
+      resolveDiscordIdentity: async () => ({
+        id: "emp-1",
+        employeeCode: "RL8-EMP-0001",
+        displayName: "Clyde",
+        discordUserId: "discord-1",
+      }),
+      createUpload: async (input) => {
+        received = input;
+        return {
+          uploadId: "upload-1",
+          artifactId: "artifact-1",
+          versionId: "version-1",
+          scope: "PERSONAL",
+          knowledgeStatus: "PERSONAL_CONTEXT",
+          dataSensitivity: "NORMAL",
+        };
+      },
+    });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/v1/uploads",
+      headers: { authorization: "Bearer test-token" },
+      payload: {
+        discordUserId: "discord-1",
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        contentBase64: Buffer.from("private notes").toString("base64"),
+        destination: "FOR_ME_ONLY",
+      },
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toEqual({
+      uploadId: "upload-1",
+      artifactId: "artifact-1",
+      versionId: "version-1",
+      scope: "PERSONAL",
+      knowledgeStatus: "PERSONAL_CONTEXT",
+      dataSensitivity: "NORMAL",
+    });
+    expect(received).toMatchObject({
+      employeeId: "emp-1",
+      originalFilename: "notes.txt",
+      mimeType: "text/plain",
+      destination: "FOR_ME_ONLY",
+    });
+    await app.close();
+  });
 });

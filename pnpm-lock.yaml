@@ -34,6 +34,9 @@ importers:
 
   apps/api:
     dependencies:
+      "@hermes/artifacts":
+        specifier: workspace:*
+        version: link:../../packages/artifacts
       "@hermes/audit":
         specifier: workspace:*
         version: link:../../packages/audit
@@ -52,6 +55,9 @@ importers:
       "@hermes/policy":
         specifier: workspace:*
         version: link:../../packages/policy
+      "@hermes/storage":
+        specifier: workspace:*
+        version: link:../../packages/storage
       fastify:
         specifier: ^5.2.1
         version: 5.12.0
