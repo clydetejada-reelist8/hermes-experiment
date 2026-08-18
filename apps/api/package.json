@@ -17,6 +17,7 @@
     "@hermes/contracts": "workspace:*",
     "@hermes/db": "workspace:*",
     "@hermes/identity": "workspace:*",
+    "@hermes/memory": "workspace:*",
     "@hermes/policy": "workspace:*",
     "@hermes/storage": "workspace:*",
     "@hermes/ssot": "workspace:*",

@@ -1,9 +1,21 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { classifySubmission, createSubmission, ingestImportedFile } from "@hermes/artifacts";
-import type { ArtifactScope, KnowledgeStatus } from "@hermes/contracts";
+import type {
+  ArtifactScope,
+  KnowledgeStatus,
+  MemorySensitivity,
+  MemoryStatus,
+  MemoryType,
+} from "@hermes/contracts";
 import { resolveDiscordEmployee, type Employee } from "@hermes/identity";
 import { IdentityDeniedError } from "@hermes/identity";
 import { ObjectStorage } from "@hermes/storage";
+import {
+  addMemory,
+  deleteMemory as deletePersonalMemory,
+  getMemories,
+  updateMemory as updatePersonalMemory,
+} from "@hermes/memory";
 import {
   approveProposalAsReviewer,
   createProposal,
@@ -48,12 +60,51 @@ export interface CreateUploadResult {
   dataSensitivity: string;
 }
 
+export interface ActionRequestInput {
+  employeeId: string;
+  actionId?: string;
+  actionType?: string;
+  parameters?: Record<string, unknown>;
+  conversationId?: string;
+  idempotencyKey?: string;
+}
+
+export interface ActionRequestResult {
+  id: string;
+  status: string;
+  [key: string]: unknown;
+}
+
+export interface MemoryRequestInput {
+  employeeId: string;
+  memoryId?: string;
+  type?: string;
+  content?: string;
+  sensitivity?: string;
+  status?: string;
+}
+
+export interface MemoryRequestResult {
+  id: string;
+  employeeId: string;
+  [key: string]: unknown;
+}
+
 export interface ServerOptions {
   internalServiceToken: string;
   logger?: boolean;
   resolveDiscordIdentity?: (discordUserId: string) => Promise<ResolvedIdentity>;
   searchKnowledge?: (input: SearchInput) => Promise<SearchEvidence[]>;
   createUpload?: (input: CreateUploadInput) => Promise<CreateUploadResult>;
+  prepareAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
+  confirmAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
+  executeAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
+  getAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
+  cancelAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
+  listMemory?: (input: MemoryRequestInput) => Promise<MemoryRequestResult[]>;
+  createMemory?: (input: MemoryRequestInput) => Promise<MemoryRequestResult>;
+  updateMemory?: (input: MemoryRequestInput) => Promise<MemoryRequestResult>;
+  deleteMemory?: (input: MemoryRequestInput) => Promise<MemoryRequestResult>;
   getReviewQueue?: (employeeId: string) => Promise<ReviewQueueProposal[]>;
   getSSOTDocument?: (employeeId: string, versionId: string) => Promise<SSOTDocument>;
   approveSSOTProposal?: (input: {
@@ -92,6 +143,15 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   const resolveIdentity = opts.resolveDiscordIdentity ?? defaultResolveDiscordIdentity;
   const searchKnowledge = opts.searchKnowledge ?? searchVisibleKnowledge;
   const createUpload = opts.createUpload ?? defaultCreateUpload;
+  const prepareAction = opts.prepareAction ?? missingActionHandler("prepare");
+  const confirmAction = opts.confirmAction ?? missingActionHandler("confirm");
+  const executeAction = opts.executeAction ?? missingActionHandler("execute");
+  const getAction = opts.getAction ?? missingActionHandler("get");
+  const cancelAction = opts.cancelAction ?? missingActionHandler("cancel");
+  const listMemory = opts.listMemory ?? defaultListMemory;
+  const createMemory = opts.createMemory ?? defaultCreateMemory;
+  const updateMemory = opts.updateMemory ?? defaultUpdateMemory;
+  const deleteMemory = opts.deleteMemory ?? defaultDeleteMemory;
   const getReviewQueue = opts.getReviewQueue ?? getReviewQueueForEmployee;
   const getSSOTDocument = opts.getSSOTDocument ?? getSSOTDocumentForEmployee;
   const approveSSOTProposal = opts.approveSSOTProposal ?? approveProposalAsReviewer;
@@ -332,7 +392,258 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     }
   });
 
+  app.post<{
+    Body: {
+      discordUserId?: string;
+      actionType?: string;
+      parameters?: Record<string, unknown>;
+      conversationId?: string;
+      idempotencyKey?: string;
+    };
+  }>("/v1/actions/prepare", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.actionType || !body.parameters || !body.idempotencyKey) {
+      return reply.code(400).send({ error: "invalid_action_prepare_request" });
+    }
+    return runActionRequest(request, reply, resolveIdentity, prepareAction, {
+      actionType: body.actionType,
+      parameters: body.parameters,
+      conversationId: body.conversationId,
+      idempotencyKey: body.idempotencyKey,
+    }, 201);
+  });
+
+  app.post<{ Params: { actionId: string }; Body: { discordUserId?: string } }>(
+    "/v1/actions/:actionId/confirm",
+    async (request, reply) =>
+      runActionRequest(request, reply, resolveIdentity, confirmAction, {
+        actionId: request.params.actionId,
+      }),
+  );
+
+  app.post<{ Params: { actionId: string }; Body: { discordUserId?: string } }>(
+    "/v1/actions/:actionId/execute",
+    async (request, reply) =>
+      runActionRequest(request, reply, resolveIdentity, executeAction, {
+        actionId: request.params.actionId,
+      }),
+  );
+
+  app.post<{ Params: { actionId: string }; Body: { discordUserId?: string } }>(
+    "/v1/actions/:actionId/cancel",
+    async (request, reply) =>
+      runActionRequest(request, reply, resolveIdentity, cancelAction, {
+        actionId: request.params.actionId,
+      }),
+  );
+
+  app.get<{ Params: { actionId: string }; Querystring: { discordUserId?: string } }>(
+    "/v1/actions/:actionId",
+    async (request, reply) =>
+      runActionRequest(request, reply, resolveIdentity, getAction, {
+        actionId: request.params.actionId,
+      }),
+  );
+
+  app.get<{ Querystring: { discordUserId?: string } }>("/v1/memory", async (request, reply) => {
+    const discordUserId = request.query.discordUserId?.trim();
+    if (!discordUserId) return reply.code(400).send({ error: "invalid_memory_request" });
+    try {
+      const identity = await resolveIdentity(discordUserId);
+      return { employeeId: identity.id, memories: await listMemory({ employeeId: identity.id }) };
+    } catch (error) {
+      return handleMemoryError(request, reply, error);
+    }
+  });
+
+  app.post<{
+    Body: { discordUserId?: string; type?: string; content?: string; sensitivity?: string };
+  }>("/v1/memory", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.discordUserId?.trim() || !body.type || !body.content?.trim()) {
+      return reply.code(400).send({ error: "invalid_memory_request" });
+    }
+    try {
+      const identity = await resolveIdentity(body.discordUserId.trim());
+      return reply.code(201).send(
+        await createMemory({
+          employeeId: identity.id,
+          type: body.type,
+          content: body.content,
+          sensitivity: body.sensitivity,
+        }),
+      );
+    } catch (error) {
+      return handleMemoryError(request, reply, error);
+    }
+  });
+
+  app.patch<{
+    Params: { memoryId: string };
+    Body: { discordUserId?: string; content?: string; sensitivity?: string; status?: string };
+  }>("/v1/memory/:memoryId", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.discordUserId?.trim() || !request.params.memoryId) {
+      return reply.code(400).send({ error: "invalid_memory_request" });
+    }
+    if (!body.content && !body.sensitivity && !body.status) {
+      return reply.code(400).send({ error: "memory_update_requires_change" });
+    }
+    try {
+      const identity = await resolveIdentity(body.discordUserId.trim());
+      return await updateMemory({
+        employeeId: identity.id,
+        memoryId: request.params.memoryId,
+        content: body.content,
+        sensitivity: body.sensitivity,
+        status: body.status,
+      });
+    } catch (error) {
+      return handleMemoryError(request, reply, error);
+    }
+  });
+
+  app.delete<{ Params: { memoryId: string }; Body: { discordUserId?: string } }>(    "/v1/memory/:memoryId",
+    async (request, reply) => {
+      const discordUserId = request.body?.discordUserId?.trim();
+      if (!discordUserId || !request.params.memoryId) {
+        return reply.code(400).send({ error: "invalid_memory_request" });
+      }
+      try {
+        const identity = await resolveIdentity(discordUserId);
+        return await deleteMemory({ employeeId: identity.id, memoryId: request.params.memoryId });
+      } catch (error) {
+        return handleMemoryError(request, reply, error);
+      }
+    },
+  );
+
   return app;
+}
+
+async function defaultListMemory(input: MemoryRequestInput): Promise<MemoryRequestResult[]> {
+  const memories = await getMemories(input.employeeId);
+  return memories.map((memory) => ({
+    id: memory.id,
+    employeeId: memory.employeeId,
+    type: memory.type,
+    content: memory.content,
+    sensitivity: memory.sensitivity,
+    status: memory.status,
+  }));
+}
+
+async function defaultCreateMemory(input: MemoryRequestInput): Promise<MemoryRequestResult> {
+  if (!input.type || !input.content) throw new Error("memory_create_invalid");
+  const memory = await addMemory({
+    employeeId: input.employeeId,
+    type: input.type as MemoryType,
+    content: input.content,
+    sensitivity: input.sensitivity as MemorySensitivity | undefined,
+  });
+  return {
+    id: memory.id,
+    employeeId: memory.employeeId,
+    type: memory.type,
+    content: memory.content,
+    sensitivity: memory.sensitivity,
+    status: memory.status,
+  };
+}
+
+async function requireOwnedMemory(employeeId: string, memoryId: string) {
+  const memory = (await getMemories(employeeId)).find((candidate) => candidate.id === memoryId);
+  if (!memory) throw new Error("memory_not_found");
+  return memory;
+}
+
+async function defaultUpdateMemory(input: MemoryRequestInput): Promise<MemoryRequestResult> {
+  if (!input.memoryId) throw new Error("memory_update_invalid");
+  await requireOwnedMemory(input.employeeId, input.memoryId);
+  const memory = await updatePersonalMemory(input.memoryId, {
+    content: input.content,
+    sensitivity: input.sensitivity as MemorySensitivity | undefined,
+    status: input.status as MemoryStatus | undefined,
+  });
+  return {
+    id: memory.id,
+    employeeId: memory.employeeId,
+    type: memory.type,
+    content: memory.content,
+    sensitivity: memory.sensitivity,
+    status: memory.status,
+  };
+}
+
+async function defaultDeleteMemory(input: MemoryRequestInput): Promise<MemoryRequestResult> {
+  if (!input.memoryId) throw new Error("memory_delete_invalid");
+  await requireOwnedMemory(input.employeeId, input.memoryId);
+  await deletePersonalMemory(input.memoryId);
+  return { id: input.memoryId, employeeId: input.employeeId, status: "DELETED" };
+}
+
+function handleMemoryError(
+  request: { log: { error(error: unknown): void } },
+  reply: { code(statusCode: number): { send(payload: unknown): unknown } },
+  error: unknown,
+): unknown {
+  if (error instanceof IdentityDeniedError) {
+    return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+  }
+  if (error instanceof Error && error.message.endsWith("_not_configured")) {
+    return reply.code(503).send({ error: error.message });
+  }
+  request.log.error(error);
+  return reply.code(500).send({ error: "memory_request_failed" });
+}
+
+interface ActionRequest {
+  body?: unknown;
+  query?: unknown;
+  params?: unknown;
+  log: { error(error: unknown): void };
+}
+
+interface ActionReply {
+  send(payload: unknown): unknown;
+  code(statusCode: number): { send(payload: unknown): unknown };
+}
+
+function missingActionHandler(operation: string) {
+  return async (): Promise<ActionRequestResult> => {
+    throw new Error(`action_${operation}_not_configured`);
+  };
+}
+
+async function runActionRequest(
+  request: ActionRequest,
+  reply: ActionReply,
+  resolveIdentity: (discordUserId: string) => Promise<ResolvedIdentity>,
+  action: (input: ActionRequestInput) => Promise<ActionRequestResult>,
+  input: Omit<ActionRequestInput, "employeeId">,
+  successStatus = 200,
+): Promise<unknown> {
+  const body = request.body as { discordUserId?: string } | undefined;
+  const query = request.query as { discordUserId?: string } | undefined;
+  const discordUserId = body?.discordUserId?.trim() ?? query?.discordUserId?.trim();
+  if (!discordUserId) {
+    return reply.code(400).send({ error: "invalid_action_request" });
+  }
+
+  try {
+    const identity = await resolveIdentity(discordUserId);
+    const result = await action({ ...input, employeeId: identity.id });
+    return successStatus === 200 ? reply.send(result) : reply.code(successStatus).send(result);
+  } catch (error) {
+    if (error instanceof IdentityDeniedError) {
+      return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+    }
+    if (error instanceof Error && error.message.endsWith("_not_configured")) {
+      return reply.code(503).send({ error: error.message });
+    }
+    request.log.error(error);
+    return reply.code(500).send({ error: "action_request_failed" });
+  }
 }
 
 interface ReviewActionRequest {
