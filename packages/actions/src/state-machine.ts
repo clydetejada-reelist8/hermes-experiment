@@ -1,4 +1,4 @@
-import { db } from "@hermes/db";
+import { db, Prisma } from "@hermes/db";
 import type { Action } from "@hermes/db";
 import type { ActionStatus, ActionType, ActionRiskLevel } from "@hermes/contracts";
 
@@ -48,7 +48,7 @@ export async function createAction(input: CreateActionInput): Promise<Action> {
       type: input.type,
       provider: input.provider,
       riskLevel: input.riskLevel ?? "LOW",
-      parametersJson: input.parametersJson,
+      parametersJson: input.parametersJson as Prisma.InputJsonValue,
       idempotencyKey: input.idempotencyKey,
       confirmationRequired: input.confirmationRequired ?? false,
       status: "PROPOSED",

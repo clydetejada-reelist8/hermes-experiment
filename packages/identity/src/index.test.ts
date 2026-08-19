@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
-import { resolveDiscordEmployee, requireActiveStagingEmployee } from "./index.js";
+import {
+  resolveDiscordEmployee,
+  resolveDiscordEmployeeProfile,
+  requireActiveStagingEmployee,
+} from "./index.js";
 import { IdentityDeniedError } from "./types.js";
 import { db } from "@hermes/db";
 
@@ -56,6 +60,23 @@ describe("resolveDiscordEmployee", () => {
     await expect(resolveDiscordEmployee(discordId)).rejects.toMatchObject({
       reason: "NOT_ALLOWLISTED",
     });
+  });
+
+  it("does not expose roles that begin in the future", async () => {
+    const { emp, discordId } = await seedEmployee({});
+    const role = await db.role.create({
+      data: { key: `future-${randomUUID()}`, name: "Future role" },
+    });
+    await db.employeeRole.create({
+      data: {
+        employeeId: emp.id,
+        roleId: role.id,
+        activeFrom: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const resolved = await resolveDiscordEmployeeProfile(discordId);
+    expect(resolved.profile.roles).not.toContain("Future role");
   });
 });
 

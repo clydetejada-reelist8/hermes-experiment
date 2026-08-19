@@ -39,5 +39,6 @@ export {
   getRemindersForEmployee,
 } from "./reminders.js";
 export type { CreateReminderInput, Reminder } from "./reminders.js";
+export { authorizeActionType, capabilityForActionType } from "./authorization.js";
 export { parseActionProposal, validateProposal } from "./proposals.js";
 export type { ParsedProposal, ProposalValidationResult, ParseProposalInput } from "./proposals.js";

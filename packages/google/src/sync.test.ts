@@ -114,8 +114,25 @@ describe("source sync and revalidation", () => {
     });
 
     await revokeExpiredConnections();
-    // The already-revoked connection should not be counted again
     const updated = await db.oAuthConnection.findUnique({ where: { id: conn.id } });
     expect(updated?.status).toBe("REVOKED");
+  });
+
+  it("fails closed when a connection has no refresh token", async () => {
+    const emp = await createEmployee();
+    const conn = await db.oAuthConnection.create({
+      data: {
+        employeeId: emp.id,
+        provider: "GOOGLE",
+        providerAccountId: `missing-token-${emp.id}`,
+        encryptedRefreshToken: null,
+        grantedScopes: [],
+        status: "ACTIVE",
+      },
+    });
+
+    await expect(revalidateConnection(conn.id, new MockTokenValidator(), TEST_KEY)).rejects.toThrow(
+      "refresh token is missing",
+    );
   });
 });

@@ -1,4 +1,31 @@
 export {
+  assertAdminManagementAllowed,
+  assertAdminPrivilegeConfirmation,
+  assertStagingBootstrapEnvironment,
+  bootstrapStagingOwner,
+  getEmployeeCapabilities,
+} from "./employee-access.js";
+export { confirmAdminChange, executeAdminChange, prepareAdminChange } from "./management.js";
+
+export {
+  cancelEmployeeEnrollment,
+  confirmEmployeeEnrollment,
+  executeEmployeeEnrollment,
+  getEmployeeEnrollment,
+  prepareEmployeeEnrollment,
+  prepareEmployeeIdentityLink,
+} from "./enrollment.js";
+
+export {
+  cancelProfileCorrection,
+  confirmProfileCorrection,
+  executeProfileCorrection,
+  getProfileCorrection,
+  prepareProfileCorrection,
+  STAGING_PROFILE_CORRECTOR_ROLE,
+} from "./profile-corrections.js";
+
+export {
   getFeatureFlag,
   setFeatureFlag,
   isFeatureEnabled,

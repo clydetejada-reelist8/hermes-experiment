@@ -122,7 +122,11 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          build-args: APP=api
+          build-args: |
+            APP=api
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ github.run_started_at }}
+            SCHEMA_VERSION=20260819120000_document_extraction_support
           push: false
           tags: hermes-api:latest
 
@@ -130,7 +134,11 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          build-args: APP=discord
+          build-args: |
+            APP=discord
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ github.run_started_at }}
+            SCHEMA_VERSION=20260819120000_document_extraction_support
           push: false
           tags: hermes-discord:latest
 
@@ -138,6 +146,10 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          build-args: APP=worker
+          build-args: |
+            APP=worker
+            GIT_COMMIT=${{ github.sha }}
+            BUILD_TIME=${{ github.run_started_at }}
+            SCHEMA_VERSION=20260819120000_document_extraction_support
           push: false
           tags: hermes-worker:latest

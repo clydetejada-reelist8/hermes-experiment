@@ -36,6 +36,9 @@ export async function revalidateConnection(
     return { valid: false, connection: conn };
   }
 
+  if (!conn.encryptedRefreshToken) {
+    throw new Error("refresh token is missing");
+  }
   const refreshToken = decryptToken(conn.encryptedRefreshToken, key);
   const result = await validator.validate(refreshToken);
 

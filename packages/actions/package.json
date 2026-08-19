@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@hermes/contracts": "workspace:*",
+    "@hermes/admin": "workspace:*",
+    "@hermes/policy": "workspace:*",
     "@hermes/db": "workspace:*"
   }
 }
