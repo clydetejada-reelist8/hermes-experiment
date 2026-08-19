@@ -99,6 +99,7 @@ export const CapabilityEnum = [
   "REMINDERS_WRITE",
   "HERMES_ADMIN",
   "EMPLOYEE_ENROLL",
+  "EMPLOYEE_PROFILE_CORRECT",
 ] as const;
 export type Capability = (typeof CapabilityEnum)[number];
 
@@ -193,5 +194,6 @@ export const AuditEventTypeEnum = [
   "ADMIN_AUTHORITY_REVOKED",
   "EMPLOYEE_ENROLLED",
   "EMPLOYEE_IDENTITY_LINKED",
+  "EMPLOYEE_PROFILE_CORRECTED",
 ] as const;
 export type AuditEventType = (typeof AuditEventTypeEnum)[number];

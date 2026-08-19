@@ -288,6 +288,47 @@ def reelist8_cancel_action(discord_user_id: str, action_id: str) -> dict[str, An
     )
 
 
+@mcp.tool(description="Prepare a governed employee display-name correction. This writes nothing and preserves employee code, Discord identity, roles, and authority.")
+def reelist8_prepare_profile_correction(discord_user_id: str, target_employee_code: str, new_display_name: str) -> dict[str, Any]:
+    return _post("/v1/admin/profile-corrections/prepare", {
+        "discordUserId": discord_user_id.strip(),
+        "targetEmployeeCode": target_employee_code.strip(),
+        "newDisplayName": new_display_name,
+    })
+
+
+@mcp.tool(description="Confirm a prepared employee display-name correction before execution.")
+def reelist8_confirm_profile_correction(discord_user_id: str, correction_id: str) -> dict[str, Any]:
+    return _post(
+        f"/v1/admin/profile-corrections/{urllib.parse.quote(correction_id.strip(), safe='')}/confirm",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
+@mcp.tool(description="Get a prepared employee profile correction status and summary.")
+def reelist8_get_profile_correction(discord_user_id: str, correction_id: str) -> dict[str, Any]:
+    return _get(
+        f"/v1/admin/profile-corrections/{urllib.parse.quote(correction_id.strip(), safe='')}",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
+@mcp.tool(description="Cancel a prepared employee display-name correction before execution.")
+def reelist8_cancel_profile_correction(discord_user_id: str, correction_id: str) -> dict[str, Any]:
+    return _post(
+        f"/v1/admin/profile-corrections/{urllib.parse.quote(correction_id.strip(), safe='')}/cancel",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
+@mcp.tool(description="Execute a confirmed employee display-name correction in the Control Plane.")
+def reelist8_execute_profile_correction(discord_user_id: str, correction_id: str) -> dict[str, Any]:
+    return _post(
+        f"/v1/admin/profile-corrections/{urllib.parse.quote(correction_id.strip(), safe='')}/execute",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
 @mcp.tool(description="Prepare linking a new immutable Discord identity to an existing employee code. This never creates a duplicate employee.")
 def reelist8_prepare_employee_identity_link(discord_user_id: str, employee_code: str, target_discord_user_id: str) -> dict[str, Any]:
     return _post("/v1/admin/identity-links/prepare", {

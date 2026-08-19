@@ -77,6 +77,11 @@ import {
   getEmployeeEnrollment,
   prepareAdminChange,
   prepareEmployeeEnrollment,
+  cancelProfileCorrection,
+  confirmProfileCorrection,
+  executeProfileCorrection,
+  getProfileCorrection,
+  prepareProfileCorrection,
   prepareEmployeeIdentityLink,
 } from "@hermes/admin";
 import { searchVisibleKnowledge, type SearchEvidence, type SearchInput } from "./search.js";
@@ -631,6 +636,97 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       return reply
         .code(403)
         .send({ error: error instanceof Error ? error.message : "enrollment_execution_denied" });
+    }
+  });
+
+  app.post<{
+    Body: { discordUserId?: string; targetEmployeeCode?: string; newDisplayName?: string };
+  }>("/v1/admin/profile-corrections/prepare", async (request, reply) => {
+    const body = request.body ?? {};
+    if (
+      !body.discordUserId?.trim() ||
+      !body.targetEmployeeCode?.trim() ||
+      !body.newDisplayName?.trim()
+    ) {
+      return reply.code(400).send({ error: "invalid_profile_correction_request" });
+    }
+    try {
+      const requester = await resolveIdentity(body.discordUserId.trim());
+      return reply.code(201).send(
+        await prepareProfileCorrection({
+          requesterEmployeeId: requester.id,
+          targetEmployeeCode: body.targetEmployeeCode,
+          newDisplayName: body.newDisplayName,
+        }),
+      );
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "profile_correction_denied" });
+    }
+  });
+
+  app.post<{
+    Params: { correctionId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/profile-corrections/:correctionId/confirm", async (request, reply) => {
+    if (!request.body?.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_profile_correction_confirmation" });
+    try {
+      const requester = await resolveIdentity(request.body.discordUserId.trim());
+      return await confirmProfileCorrection(request.params.correctionId, requester.id);
+    } catch (error) {
+      return reply.code(403).send({
+        error: error instanceof Error ? error.message : "profile_correction_confirmation_denied",
+      });
+    }
+  });
+
+  app.get<{
+    Params: { correctionId: string };
+    Querystring: { discordUserId?: string };
+  }>("/v1/admin/profile-corrections/:correctionId", async (request, reply) => {
+    if (!request.query.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_profile_correction_status" });
+    try {
+      const requester = await resolveIdentity(request.query.discordUserId.trim());
+      return await getProfileCorrection(request.params.correctionId, requester.id);
+    } catch (error) {
+      return reply.code(403).send({
+        error: error instanceof Error ? error.message : "profile_correction_status_denied",
+      });
+    }
+  });
+
+  app.post<{
+    Params: { correctionId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/profile-corrections/:correctionId/cancel", async (request, reply) => {
+    if (!request.body?.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_profile_correction_cancellation" });
+    try {
+      const requester = await resolveIdentity(request.body.discordUserId.trim());
+      return await cancelProfileCorrection(request.params.correctionId, requester.id);
+    } catch (error) {
+      return reply.code(403).send({
+        error: error instanceof Error ? error.message : "profile_correction_cancellation_denied",
+      });
+    }
+  });
+
+  app.post<{
+    Params: { correctionId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/profile-corrections/:correctionId/execute", async (request, reply) => {
+    if (!request.body?.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_profile_correction_execution" });
+    try {
+      const requester = await resolveIdentity(request.body.discordUserId.trim());
+      return await executeProfileCorrection(request.params.correctionId, requester.id);
+    } catch (error) {
+      return reply.code(403).send({
+        error: error instanceof Error ? error.message : "profile_correction_execution_denied",
+      });
     }
   });
 
