@@ -8,5 +8,10 @@
   },
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"],
-  "references": [{ "path": "../contracts" }, { "path": "../db" }]
+  "references": [
+    { "path": "../contracts" },
+    { "path": "../db" },
+    { "path": "../admin" },
+    { "path": "../policy" }
+  ]
 }

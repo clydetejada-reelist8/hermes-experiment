@@ -58,3 +58,15 @@ export async function createProject(key?: string) {
 export async function createTeam(name?: string) {
   return db.team.create({ data: { name: name ?? `Team ${randomUUID().slice(0, 6)}` } });
 }
+
+export async function grantCapability(
+  employeeId: string,
+  capability: Parameters<typeof db.roleCapability.create>[0]["data"]["capability"],
+) {
+  const role = await db.role.create({
+    data: { key: `role-${randomUUID().slice(0, 8)}`, name: "Test capability role" },
+  });
+  await db.employeeRole.create({ data: { employeeId, roleId: role.id } });
+  await db.roleCapability.create({ data: { roleId: role.id, capability } });
+  return role;
+}

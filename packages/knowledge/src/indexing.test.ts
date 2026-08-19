@@ -60,4 +60,20 @@ describe("indexArtifactVersion", () => {
     });
     expect(dbChunks.length).toBe(chunks.length);
   });
+
+  it("replaces existing artifact chunks when indexing a version again", async () => {
+    const { version } = await createArtifactWithVersion();
+    const input = {
+      artifactVersionId: version.id,
+      text: "Retry-safe indexed content.",
+      embeddingFn: new MockEmbeddingFn(),
+    };
+
+    const first = await indexArtifactVersion(input);
+    const second = await indexArtifactVersion(input);
+    const dbChunks = await db.knowledgeChunk.findMany({ where: { artifactVersionId: version.id } });
+
+    expect(second.length).toBe(first.length);
+    expect(dbChunks).toHaveLength(first.length);
+  });
 });

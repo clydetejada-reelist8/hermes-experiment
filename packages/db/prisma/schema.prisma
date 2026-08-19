@@ -92,6 +92,14 @@ enum SyncState {
   ERROR
 }
 
+enum ExtractionStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+  UNSUPPORTED
+}
+
 enum MemoryType {
   PREFERENCE
   RESPONSIBILITY
@@ -142,6 +150,7 @@ enum Capability {
   CALENDAR_INVITE_OTHERS
   CALENDAR_UPDATE_EVENT
   CALENDAR_CANCEL_EVENT
+  REMINDERS_WRITE
   HERMES_ADMIN
 }
 
@@ -461,7 +470,12 @@ model ArtifactVersion {
   versionNumber        Int
   sourceVersionId      String?
   contentHash          String
+  originalObjectKey    String?
   extractedTextObjectKey String?
+  extractionStatus     ExtractionStatus @default(UPLOADED)
+  extractionError      String?
+  extractionMetadata   Json?
+  extractedAt          DateTime?
   sourceModifiedAt     DateTime?
   effectiveFrom        DateTime?
   effectiveUntil       DateTime?

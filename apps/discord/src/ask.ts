@@ -32,7 +32,10 @@ export interface AskResult {
 }
 
 /**
- * AskOrchestrator — the core conversation loop for Discord Ask.
+ * AskOrchestrator — development/test-only legacy conversation loop.
+ *
+ * @deprecated Production Hermes requests use the Hermes Agent gateway and
+ * REELIST8 MCP tools, not this orchestrator.
  *
  * Flow:
  *   1. Embed the query and retrieve relevant chunks (with permission filtering)

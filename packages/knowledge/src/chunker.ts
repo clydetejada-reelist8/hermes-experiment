@@ -34,7 +34,7 @@ export function chunkText(text: string, opts: ChunkOptions): Chunk[] {
   if (!trimmed) return [];
 
   // Split into sentences (rough heuristic).
-  const sentences = trimmed.match(/[^.!?]+[.!?]*\s*/g) ?? [trimmed];
+  const sentences = trimmed.split(/(?<=[.!?])\s+/);
 
   // Further split long sentences into words.
   const words: string[] = [];

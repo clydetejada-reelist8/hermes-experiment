@@ -11,15 +11,19 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
+    "@hermes/actions": "workspace:*",
     "@hermes/artifacts": "workspace:*",
     "@hermes/audit": "workspace:*",
     "@hermes/config": "workspace:*",
     "@hermes/contracts": "workspace:*",
     "@hermes/db": "workspace:*",
+    "@hermes/google": "workspace:*",
     "@hermes/identity": "workspace:*",
+    "@hermes/memory": "workspace:*",
     "@hermes/policy": "workspace:*",
     "@hermes/storage": "workspace:*",
     "@hermes/ssot": "workspace:*",
+    "@hermes/worker": "workspace:*",
     "fastify": "^5.2.1"
   }
 }
