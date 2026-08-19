@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@hermes/db";
 import { indexArtifactVersion, indexSSOTVersion } from "./indexing.js";
 import { hybridRetrieve, type EmbeddingFunction } from "./retrieval.js";
-import { createEmployee, createTeam, grantCapability } from "../../../test/fixtures/db-helpers.js";
+import { createEmployee, createProject, createTeam, grantCapability } from "../../../test/fixtures/db-helpers.js";
 import { createSubmission } from "@hermes/artifacts";
 
 class MockEmbeddingFn implements EmbeddingFunction {
@@ -144,6 +144,32 @@ describe("hybridRetrieve", () => {
     expect(results.every((r) => !r.text.includes("private strategy"))).toBe(true);
   });
 
+  it("does not return PROJECT chunks for non-project-members", async () => {
+    const member = await createEmployee();
+    const outsider = await createEmployee();
+    await grantCapability(member.id, "KNOWLEDGE_READ_TEAM");
+    await grantCapability(outsider.id, "KNOWLEDGE_READ_TEAM");
+    const project = await createProject();
+    await db.projectMember.create({ data: { employeeId: member.id, projectId: project.id } });
+    const { artifact } = await setupArtifactWithContent("Project confidential roadmap.");
+    await createSubmission({
+      artifactId: artifact.id,
+      submittedByEmployeeId: member.id,
+      scope: "PROJECT",
+      projectId: project.id,
+      knowledgeStatus: "REFERENCE",
+      dataSensitivity: "NORMAL",
+    });
+
+    const results = await hybridRetrieve({
+      employeeId: outsider.id,
+      query: "confidential roadmap",
+      queryEmbedding: await new MockEmbeddingFn().embed("confidential roadmap"),
+      limit: 10,
+      embeddingFn: new MockEmbeddingFn(),
+    });
+    expect(results.every((result) => !result.text.includes("Project confidential roadmap"))).toBe(true);
+  });
   it("returns COMPANY chunks only for employees with company-read capability", async () => {
     const emp = await createEmployee();
     await grantCapability(emp.id, "KNOWLEDGE_READ_COMPANY");
