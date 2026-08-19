@@ -41,10 +41,7 @@ export function capabilityForActionType(actionType: string): Capability {
  * execution. A missing feature flag is treated as legacy/unconfigured and does
  * not disable existing staging behavior; an explicitly disabled flag does.
  */
-export async function authorizeActionType(
-  employeeId: string,
-  actionType: string,
-): Promise<void> {
+export async function authorizeActionType(employeeId: string, actionType: string): Promise<void> {
   const capability = capabilityForActionType(actionType);
   const decision = await evaluateCapability(employeeId, capability);
   if (!decision.allowed) throw new Error("action_capability_denied");

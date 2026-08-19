@@ -28,7 +28,7 @@ Do not print that file; it contains secrets.
 
 ## Build a specific repository commit
 
-From the repository:
+From a clean repository revision:
 
 ```bash
 git fetch origin
@@ -39,16 +39,9 @@ npx pnpm@10.12.1 typecheck
 npx pnpm@10.12.1 build
 ```
 
-Record the commit SHA before restarting. The build script removes stale generated Prisma output before copying the current client.
+`pnpm build` runs the workspace build and then generates `build-metadata.json` in the API and worker `dist/` directories. The generator records the exact Git revision, UTC build timestamp, and latest applied migration read from `_prisma_migrations`. It refuses to generate release metadata for a dirty worktree or a commit mismatch.
 
-Set these non-secret values in the service environment when deploying a build:
-
-```text
-GIT_COMMIT=<git rev-parse HEAD>
-BUILD_TIME=<UTC build time>
-SCHEMA_VERSION=20260819040000_add_reminders_write_capability
-WORKER_HEARTBEAT_FILE=/run/reelist8/worker.heartbeat
-```
+For Docker builds, pass `GIT_COMMIT`, `BUILD_TIME`, and `SCHEMA_VERSION` as build arguments. The CI workflow supplies all three values.
 
 Secrets remain in the existing service environment file and must not be committed.
 

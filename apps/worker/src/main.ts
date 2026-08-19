@@ -1,21 +1,16 @@
 import { writeFile } from "node:fs/promises";
 import { loadConfig } from "@hermes/config";
+import { db } from "@hermes/db";
+import { documentProcessingLimitsFromEnv } from "@hermes/artifacts";
 import { ObjectStorage } from "@hermes/storage";
 import { RedisListQueue } from "./queue.js";
 import { createWorkerRunner } from "./runner.js";
-import { DeterministicEmbeddingFunction, processTextArtifact } from "./processing.js";
+import { DeterministicEmbeddingFunction, processDocumentArtifact } from "./processing.js";
+import { processArtifactJob, type ArtifactIngestionJob } from "./ingestion.js";
 
-interface ArtifactIngestionJob {
-  artifactVersionId: string;
-  objectKey: string;
-  bucket: string;
-  mimeType: string;
-  filename: string;
-  retryCount?: number;
-  maxRetries?: number;
-}
-
-export async function startWorker(signal: { aborted: boolean } = { aborted: false }): Promise<void> {
+export async function startWorker(
+  signal: { aborted: boolean } = { aborted: false },
+): Promise<void> {
   const config = loadConfig(process.env);
   if (!config.redisUrl) throw new Error("worker_redis_not_configured");
   if (
@@ -37,6 +32,7 @@ export async function startWorker(signal: { aborted: boolean } = { aborted: fals
 
   const queue = new RedisListQueue(config.redisUrl);
   const embeddingFn = new DeterministicEmbeddingFunction();
+  const limits = documentProcessingLimitsFromEnv(process.env);
   const heartbeatFile = process.env.WORKER_HEARTBEAT_FILE ?? "/tmp/hermes-worker.heartbeat";
   const heartbeat = async () => {
     await writeFile(heartbeatFile, `${new Date().toISOString()}\n`, { mode: 0o600 });
@@ -51,14 +47,14 @@ export async function startWorker(signal: { aborted: boolean } = { aborted: fals
   const runner = createWorkerRunner(queue, {
     "artifact-ingestion": async (job) => {
       const data = job.data as ArtifactIngestionJob;
-      const content = await storage.getObject(data.bucket, data.objectKey);
-      if (!content) throw new Error(`artifact_object_not_found: ${data.objectKey}`);
-      await processTextArtifact({
-        artifactVersionId: data.artifactVersionId,
-        content,
-        mimeType: data.mimeType,
-        filename: data.filename,
-        embeddingFn,
+      await processArtifactJob(data, {
+        storage,
+        versions: {
+          update: async ({ id, data: update }) => {
+            await db.artifactVersion.update({ where: { id }, data: update as never });
+          },
+        },
+        process: async (input) => processDocumentArtifact({ ...input, embeddingFn, limits }),
       });
       await heartbeat();
     },

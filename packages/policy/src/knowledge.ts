@@ -9,7 +9,9 @@ export interface KnowledgeAccessContext {
 }
 
 export class KnowledgeAccessDeniedError extends Error {
-  constructor(public readonly reason: "EMPLOYEE_INACTIVE" | "NOT_ALLOWLISTED" | "EMPLOYEE_NOT_FOUND") {
+  constructor(
+    public readonly reason: "EMPLOYEE_INACTIVE" | "NOT_ALLOWLISTED" | "EMPLOYEE_NOT_FOUND",
+  ) {
     super(`knowledge_access_denied:${reason}`);
     this.name = "KnowledgeAccessDeniedError";
   }
@@ -20,7 +22,9 @@ export class KnowledgeAccessDeniedError extends Error {
  * retrieval implementation. Callers must use the returned capabilities and
  * memberships when constructing their SQL visibility predicate.
  */
-export async function getKnowledgeAccessContext(employeeId: string): Promise<KnowledgeAccessContext> {
+export async function getKnowledgeAccessContext(
+  employeeId: string,
+): Promise<KnowledgeAccessContext> {
   const employee = await db.employee.findUnique({
     where: { id: employeeId },
     include: {
@@ -48,10 +52,12 @@ export async function getKnowledgeAccessContext(employeeId: string): Promise<Kno
     }
   }
 
+  const teamMemberships = employee.employeeTeams as unknown as Array<{ teamId: string }>;
+  const projectMemberships = employee.projectMemberships as unknown as Array<{ projectId: string }>;
   return {
     employeeId,
-    teamIds: employee.employeeTeams.map((membership) => membership.teamId),
-    projectIds: employee.projectMemberships.map((membership) => membership.projectId),
+    teamIds: teamMemberships.map((membership) => membership.teamId),
+    projectIds: projectMemberships.map((membership) => membership.projectId),
     capabilities,
   };
 }

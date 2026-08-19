@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { db } from "@hermes/db";
 import { createEmployee, grantCapability } from "../../../test/fixtures/db-helpers.js";
 import { authorizeActionType, capabilityForActionType } from "./authorization.js";
 

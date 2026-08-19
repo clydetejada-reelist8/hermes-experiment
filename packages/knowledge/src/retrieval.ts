@@ -21,6 +21,11 @@ export interface RetrievalResult {
   knowledgeStatus: string;
   dataSensitivity: string;
   scope: string;
+  sourceTitle?: string;
+  sourceLocator?: string;
+  pageNumber?: number;
+  sheetName?: string;
+  version?: number;
 }
 
 export interface HybridRetrieveInput {
@@ -89,6 +94,11 @@ export async function hybridRetrieve(input: HybridRetrieveInput): Promise<Retrie
       kc."artifactVersionId",
       kc."ssotVersionId",
       kc."chunkIndex",
+      a."originalFilename" AS "sourceTitle",
+      kc."sourceLocator",
+      kc."pageNumber",
+      kc."sheetName",
+      av."versionNumber" AS version,
       (1 - (kc.embedding <=> ${queryVector}::vector) / 2) AS "semanticScore",
       ts_rank_cd(to_tsvector('english', kc.text), plainto_tsquery('english', ${input.query})) AS "keywordScore",
       COALESCE(vsi."knowledgeStatus"::text, 'REFERENCE') AS "knowledgeStatus",
@@ -136,6 +146,7 @@ export async function hybridRetrieve(input: HybridRetrieveInput): Promise<Retrie
         )
       )
     )    ORDER BY
+      (CASE WHEN kc.text ILIKE ${`%${input.query}%`} THEN 0 ELSE 1 END),
       (COALESCE(kc.embedding <=> ${queryVector}::vector, 2) * 0.7
        + (1 - ts_rank_cd(to_tsvector('english', kc.text), plainto_tsquery('english', ${input.query}))) * 0.3) ASC
     LIMIT ${input.limit}

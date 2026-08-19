@@ -133,22 +133,33 @@ export async function searchVisibleKnowledge(input: SearchInput): Promise<Search
       (kc."artifactVersionId" IS NOT NULL AND a.id IN (SELECT "artifactId" FROM visible_artifacts))
       OR (kc."ssotVersionId" IS NOT NULL AND ${canReadCompany} = true)
     )
-    AND to_tsvector('english', COALESCE(kc."textSearchDocument", kc.text))
-        @@ plainto_tsquery('english', ${query})
+    AND (
+      kc.text ILIKE ${`%${query}%`}
+      OR to_tsvector('simple', COALESCE(kc."textSearchDocument", kc.text))
+          @@ plainto_tsquery('simple', ${query})
+      OR to_tsvector('english', COALESCE(kc."textSearchDocument", kc.text))
+          @@ plainto_tsquery('english', ${query})
+    )
     ORDER BY ts_rank_cd(
       to_tsvector('english', COALESCE(kc."textSearchDocument", kc.text)),
       plainto_tsquery('english', ${query})
-    ) DESC, kc."createdAt" DESC
+    ) DESC, (CASE WHEN kc.text ILIKE ${`%${query}%`} THEN 0 ELSE 1 END), kc."createdAt" DESC
     LIMIT ${limit}
   `;
 
-  return rows.map((row) => ({
+  const typedRows = rows as unknown as SearchRow[];
+  return typedRows.map((row) => ({
     chunkId: row.chunkId,
     text: row.text,
     knowledgeStatus: row.knowledgeStatus,
     scope: row.scope,
     sourceType: row.sourceType,
-    citation: row.sourceLocator ?? row.artifactVersionId ?? row.ssotVersionId ?? row.artifactId ?? row.chunkId,
+    citation:
+      row.sourceLocator ??
+      row.artifactVersionId ??
+      row.ssotVersionId ??
+      row.artifactId ??
+      row.chunkId,
     sourceTitle: row.sourceTitle ?? undefined,
     artifactId: row.artifactId ?? undefined,
     artifactVersionId: row.artifactVersionId ?? undefined,

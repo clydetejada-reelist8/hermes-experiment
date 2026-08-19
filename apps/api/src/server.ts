@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
@@ -15,7 +16,12 @@ import {
   authorizeActionType,
 } from "@hermes/actions";
 import { db } from "@hermes/db";
-import { classifySubmission, createSubmission, ingestImportedFile } from "@hermes/artifacts";
+import {
+  classifySubmission,
+  createSubmission,
+  ingestImportedFile,
+  documentProcessingLimitsFromEnv,
+} from "@hermes/artifacts";
 import type {
   ArtifactScope,
   KnowledgeStatus,
@@ -24,7 +30,12 @@ import type {
   MemoryType,
 } from "@hermes/contracts";
 import { evaluateCapability } from "@hermes/policy";
-import { resolveDiscordEmployee, type Employee } from "@hermes/identity";
+import {
+  resolveDiscordEmployee,
+  resolveDiscordEmployeeProfile,
+  type Employee,
+  type EmployeeProfile,
+} from "@hermes/identity";
 import { IdentityDeniedError } from "@hermes/identity";
 import {
   GoogleCalendarProvider,
@@ -64,6 +75,7 @@ export interface ResolvedIdentity {
   employeeCode: string;
   displayName: string;
   discordUserId: string;
+  profile?: EmployeeProfile;
 }
 
 export type UploadDestination =
@@ -88,6 +100,9 @@ export interface CreateUploadResult {
   scope: ArtifactScope;
   knowledgeStatus: KnowledgeStatus;
   dataSensitivity: string;
+  extractionStatus: string;
+  originalObjectKey?: string;
+  extractionError?: string;
 }
 
 export interface ActionRequestInput {
@@ -189,6 +204,7 @@ export interface ServerOptions {
   logger?: boolean;
   readinessCheck?: () => Promise<ReadinessResult>;
   resolveDiscordIdentity?: (discordUserId: string) => Promise<ResolvedIdentity>;
+  resolveDiscordEmployeeProfile?: (discordUserId: string) => Promise<EmployeeProfile>;
   searchKnowledge?: (input: SearchInput) => Promise<SearchEvidence[]>;
   createUpload?: (input: CreateUploadInput) => Promise<CreateUploadResult>;
   ask?: (input: AskRequestInput) => Promise<AskRequestResult>;
@@ -274,6 +290,64 @@ function defaultResolveDiscordIdentity(discordUserId: string): Promise<ResolvedI
   }));
 }
 
+function defaultResolveDiscordEmployeeProfile(discordUserId: string): Promise<EmployeeProfile> {
+  return resolveDiscordEmployeeProfile(discordUserId).then(({ profile }) => profile);
+}
+
+interface BuildMetadata {
+  gitCommit: string;
+  buildTime: string;
+  schemaVersion: string;
+}
+
+function loadBuildMetadata(): BuildMetadata {
+  try {
+    return JSON.parse(
+      readFileSync(new URL("./build-metadata.json", import.meta.url), "utf8"),
+    ) as BuildMetadata;
+  } catch {
+    return {
+      gitCommit: process.env.GIT_COMMIT ?? "unknown",
+      buildTime: process.env.BUILD_TIME ?? "unknown",
+      schemaVersion: process.env.SCHEMA_VERSION ?? "unknown",
+    };
+  }
+}
+
+function isIdentityQuestion(text: string): boolean {
+  return /\b(who am i|what(?:'s| is) my (?:name|employee id|employee code|company|role|team|manager|permissions?|capabilities?|linked identities?)|what company am i in|what(?:'s| is) my (?:project|projects)|my profile)\b/i.test(
+    text,
+  );
+}
+
+function renderIdentityAnswer(
+  identity: ResolvedIdentity,
+  profile: EmployeeProfile,
+  question: string,
+): string {
+  const lines = [
+    `Name: ${identity.displayName}`,
+    `Employee ID: ${identity.employeeCode}`,
+    `Canonical employee record ID: ${identity.id}`,
+    `Company: ${profile.company}`,
+  ];
+  if (profile.roles.length > 0) lines.push(`Role: ${profile.roles.join(", ")}`);
+  if (profile.teams.length > 0) lines.push(`Team: ${profile.teams.join(", ")}`);
+  if (profile.projects.length > 0) lines.push(`Projects: ${profile.projects.join(", ")}`);
+  if (profile.manager) lines.push(`Manager: ${profile.manager}`);
+  if (/\b(permission|capabilit)/i.test(question)) {
+    lines.push(
+      `Permissions/capabilities: ${profile.capabilities.length > 0 ? profile.capabilities.join(", ") : "None recorded"}`,
+    );
+  }
+  if (/\blinked identit/i.test(question)) {
+    lines.push(
+      `Linked identities: ${profile.linkedIdentities.length > 0 ? profile.linkedIdentities.map((linked) => `${linked.provider}:${linked.subjectId}`).join(", ") : "None recorded"}`,
+    );
+  }
+  return lines.join("\n");
+}
+
 /**
  * Build the Hermes Control Plane API.
  *
@@ -285,6 +359,8 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   const app = Fastify({ logger: opts.logger ?? false });
   const readinessCheck = opts.readinessCheck ?? defaultReadinessCheck;
   const resolveIdentity = opts.resolveDiscordIdentity ?? defaultResolveDiscordIdentity;
+  const resolveEmployeeProfile =
+    opts.resolveDiscordEmployeeProfile ?? defaultResolveDiscordEmployeeProfile;
   const searchKnowledge = opts.searchKnowledge ?? searchVisibleKnowledge;
   const createUpload = opts.createUpload ?? defaultCreateUpload;
   const ask = opts.ask ?? missingAskHandler();
@@ -330,11 +406,7 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   });
 
   app.get("/health", async () => ({ status: "ok" }));
-  app.get("/version", async () => ({
-    gitCommit: process.env.GIT_COMMIT ?? "unknown",
-    buildTime: process.env.BUILD_TIME ?? "unknown",
-    schemaVersion: process.env.SCHEMA_VERSION ?? "20260819040000_add_reminders_write_capability",
-  }));
+  app.get("/version", async () => loadBuildMetadata());
   app.get("/health/ready", async (_request, reply) => {
     const result = await readinessCheck();
     return reply.code(result.ready ? 200 : 503).send(result);
@@ -353,12 +425,20 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
 
       try {
         const identity = await resolveIdentity(subjectId);
+        const profile = identity.profile ?? (await resolveEmployeeProfile(subjectId));
         return {
           employeeId: identity.id,
           employeeCode: identity.employeeCode,
           displayName: identity.displayName,
           provider: "DISCORD",
           subjectId: identity.discordUserId,
+          profile: {
+            company: profile.company,
+            roles: profile.roles,
+            teams: profile.teams,
+            projects: profile.projects,
+            manager: profile.manager,
+          },
         };
       } catch (error) {
         if (error instanceof IdentityDeniedError) {
@@ -417,6 +497,17 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
     }
     try {
       const identity = await resolveIdentity(body.discordUserId.trim());
+      if (isIdentityQuestion(body.text)) {
+        const profile =
+          identity.profile ?? (await resolveEmployeeProfile(body.discordUserId.trim()));
+        return {
+          status: "SUPPORTED",
+          text: renderIdentityAnswer(identity, profile, body.text),
+          citations: [],
+          limitations: [],
+          conflictChunkIds: [],
+        };
+      }
       return await ask({
         employeeId: identity.id,
         employeeName: identity.displayName,
@@ -426,6 +517,12 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       });
     } catch (error) {
       if (error instanceof IdentityDeniedError) {
+        if (error.reason === "IDENTITY_NOT_FOUND" && isIdentityQuestion(body.text)) {
+          return reply.code(403).send({
+            error: "identity_not_linked",
+            message: "Your Discord account is not currently linked to a REELIST8 employee record.",
+          });
+        }
         return reply.code(403).send({ error: "identity_denied", reason: error.reason });
       }
       if (error instanceof Error && error.message === "ask_not_configured") {
@@ -694,11 +791,56 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       if (error instanceof Error && error.message === "ssot_review_requires_authority_domain") {
         return reply.code(400).send({ error: "ssot_review_requires_authority_domain" });
       }
-      if (error instanceof Error && ["upload_storage_not_configured", "ingestion_queue_not_configured"].includes(error.message)) {
+      if (
+        error instanceof Error &&
+        ["upload_storage_not_configured", "ingestion_queue_not_configured"].includes(error.message)
+      ) {
         return reply.code(503).send({ error: error.message });
       }
       request.log.error(error);
       return reply.code(500).send({ error: "upload_failed" });
+    }
+  });
+
+  app.get<{
+    Params: { versionId: string };
+    Querystring: { discordUserId?: string };
+  }>("/v1/uploads/:versionId", async (request, reply) => {
+    const discordUserId = request.query.discordUserId?.trim();
+    if (!discordUserId || !request.params.versionId) {
+      return reply.code(400).send({ error: "invalid_upload_status_request" });
+    }
+    try {
+      const identity = await resolveIdentity(discordUserId);
+      const version = await db.artifactVersion.findUnique({
+        where: { id: request.params.versionId },
+        include: { artifact: { include: { submissions: true } } },
+      });
+      const submissions = version?.artifact.submissions as unknown as Array<{
+        submittedByEmployeeId: string;
+        ownerEmployeeId: string | null;
+      }>;
+      const visible = submissions?.some(
+        (submission) =>
+          submission.submittedByEmployeeId === identity.id ||
+          submission.ownerEmployeeId === identity.id,
+      );
+      if (!version || !visible) return reply.code(404).send({ error: "upload_not_found" });
+      return {
+        artifactId: version.artifactId,
+        versionId: version.id,
+        filename: version.artifact.originalFilename,
+        extractionStatus: version.extractionStatus,
+        extractionError: version.extractionError,
+        extractedAt: version.extractedAt,
+        extractionMetadata: version.extractionMetadata,
+      };
+    } catch (error) {
+      if (error instanceof IdentityDeniedError) {
+        return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+      }
+      request.log.error(error);
+      return reply.code(500).send({ error: "upload_status_failed" });
     }
   });
 
@@ -957,7 +1099,12 @@ function handleReminderError(
 ): unknown {
   if (error instanceof IdentityDeniedError)
     return reply.code(403).send({ error: "identity_denied", reason: error.reason });
-  if (error instanceof Error && ["action_capability_denied", "action_feature_disabled", "action_kill_switch_active"].includes(error.message))
+  if (
+    error instanceof Error &&
+    ["action_capability_denied", "action_feature_disabled", "action_kill_switch_active"].includes(
+      error.message,
+    )
+  )
     return reply.code(403).send({ error: error.message });
   if (error instanceof Error && error.message.endsWith("_not_found"))
     return reply.code(404).send({ error: error.message });
@@ -1430,7 +1577,12 @@ async function runActionRequest(
     if (error instanceof IdentityDeniedError) {
       return reply.code(403).send({ error: "identity_denied", reason: error.reason });
     }
-    if (error instanceof Error && ["action_capability_denied", "action_feature_disabled", "action_kill_switch_active"].includes(error.message)) {
+    if (
+      error instanceof Error &&
+      ["action_capability_denied", "action_feature_disabled", "action_kill_switch_active"].includes(
+        error.message,
+      )
+    ) {
       return reply.code(403).send({ error: error.message });
     }
     if (error instanceof Error && error.message.endsWith("_not_configured")) {
@@ -1543,7 +1695,7 @@ async function defaultCreateUpload(input: CreateUploadInput): Promise<CreateUplo
       proposedByEmployeeId: input.employeeId,
       authorityDomain: input.authorityDomain!,
       title: input.originalFilename,
-      proposedContent: input.content.toString("utf8"),
+      proposedContent: `Uploaded file: ${input.originalFilename}. Extraction is queued for governed review.`,
       sourceArtifactIds: [imported.artifact.id],
     });
     proposalId = proposal.id;
@@ -1556,12 +1708,14 @@ async function defaultCreateUpload(input: CreateUploadInput): Promise<CreateUplo
     name: "artifact-ingestion",
     data: {
       artifactVersionId: imported.version.id,
-      objectKey: imported.version.extractedTextObjectKey,
+      originalObjectKey: imported.version.originalObjectKey,
+      objectKey: imported.version.originalObjectKey ?? "",
       bucket: cfg.objectStorageBucket,
       mimeType: input.mimeType,
       filename: input.originalFilename,
       retryCount: 0,
-      maxRetries: 3,
+      maxRetries: documentProcessingLimitsFromEnv(process.env).workerMaxRetries,
+      limits: documentProcessingLimitsFromEnv(process.env),
     },
   });
 
@@ -1573,6 +1727,9 @@ async function defaultCreateUpload(input: CreateUploadInput): Promise<CreateUplo
     scope: destination.scope,
     knowledgeStatus: destination.knowledgeStatus,
     dataSensitivity: classification.sensitivity,
+    extractionStatus: imported.version.extractionStatus,
+    originalObjectKey: imported.version.originalObjectKey ?? undefined,
+    extractionError: imported.version.extractionError ?? undefined,
   };
 }
 
@@ -1600,6 +1757,7 @@ async function start(): Promise<void> {
   const app = await buildServer({
     internalServiceToken: cfg.internalServiceToken,
     logger: true,
+    uploadMaxBytes: cfg.uploadMaxBytes,
   });
   await app.listen({ port: cfg.apiPort, host: cfg.apiHost });
 }

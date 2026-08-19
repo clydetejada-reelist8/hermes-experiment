@@ -55,7 +55,9 @@ describe("upload to worker to permissioned search", () => {
       embeddingFn: new DeterministicEmbeddingFunction(),
     });
     expect(chunks.length).toBeGreaterThan(0);
-    expect(await db.knowledgeChunk.count({ where: { artifactVersionId: imported.version.id } })).toBeGreaterThan(0);
+    expect(
+      await db.knowledgeChunk.count({ where: { artifactVersionId: imported.version.id } }),
+    ).toBeGreaterThan(0);
 
     const queryEmbedding = await new DeterministicEmbeddingFunction().embed("launch checklist");
     const ownerResults = await hybridRetrieve({
@@ -65,7 +67,9 @@ describe("upload to worker to permissioned search", () => {
       limit: 10,
       embeddingFn: new DeterministicEmbeddingFunction(),
     });
-    expect(ownerResults.some((result) => result.text.includes("restricted launch checklist"))).toBe(true);
+    expect(ownerResults.some((result) => result.text.includes("restricted launch checklist"))).toBe(
+      true,
+    );
 
     const unauthorizedResults = await hybridRetrieve({
       employeeId: unauthorized.id,
@@ -74,6 +78,8 @@ describe("upload to worker to permissioned search", () => {
       limit: 10,
       embeddingFn: new DeterministicEmbeddingFunction(),
     });
-    expect(unauthorizedResults.every((result) => !result.text.includes("restricted launch checklist"))).toBe(true);
+    expect(
+      unauthorizedResults.every((result) => !result.text.includes("restricted launch checklist")),
+    ).toBe(true);
   });
 });

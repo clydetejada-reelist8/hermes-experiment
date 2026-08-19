@@ -149,6 +149,15 @@ def reelist8_create_upload(
     return _post("/v1/uploads", payload)
 
 
+@mcp.tool(description="Get the extraction/indexing status of an employee-owned REELIST8 upload.")
+def reelist8_get_upload_status(discord_user_id: str, version_id: str) -> dict[str, Any]:
+    """Return upload processing state without exposing another employee's file."""
+    return _get(
+        f"/v1/uploads/{urllib.parse.quote(version_id.strip(), safe='')}",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
 @mcp.tool(description="List only the requesting employee's personal memories.")
 def reelist8_list_memory(discord_user_id: str) -> dict[str, Any]:
     """Never accept an employee ID supplied by the model."""

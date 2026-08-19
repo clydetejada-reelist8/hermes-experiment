@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { db } from "@hermes/db";
 import { buildServer } from "../src/server.js";
-import { createEmployee, createDiscordIdentity, grantCapability } from "../../../test/fixtures/db-helpers.js";
+import {
+  createEmployee,
+  createDiscordIdentity,
+  grantCapability,
+} from "../../../test/fixtures/db-helpers.js";
 
 describe("permission-aware /v1/search", () => {
   it("does not return company evidence to an employee without company-read capability", async () => {
@@ -47,7 +51,11 @@ describe("permission-aware /v1/search", () => {
       method: "POST",
       url: "/v1/search",
       headers: { authorization: "Bearer test-token" },
-      payload: { discordUserId: identity.providerSubjectId, query: "authorization policy", limit: 10 },
+      payload: {
+        discordUserId: identity.providerSubjectId,
+        query: "authorization policy",
+        limit: 10,
+      },
     });
 
     expect(response.statusCode).toBe(200);
@@ -101,7 +109,11 @@ describe("permission-aware /v1/search", () => {
       method: "POST",
       url: "/v1/search",
       headers: { authorization: "Bearer test-token" },
-      payload: { discordUserId: identity.providerSubjectId, query: "authorization policy", limit: 10 },
+      payload: {
+        discordUserId: identity.providerSubjectId,
+        query: "authorization policy",
+        limit: 10,
+      },
     });
 
     expect(response.statusCode).toBe(200);

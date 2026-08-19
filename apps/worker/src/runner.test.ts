@@ -28,7 +28,11 @@ describe("WorkerRunner", () => {
     const requeued: QueueJob<unknown>[] = [];
     const runner = new WorkerRunner(
       {
-        dequeue: async () => ({ id: "job-1", name: "artifact-ingestion", data: { retryCount: 0, maxRetries: 2 } }),
+        dequeue: async () => ({
+          id: "job-1",
+          name: "artifact-ingestion",
+          data: { retryCount: 0, maxRetries: 2 },
+        }),
         enqueue: async (_queue, job) => {
           requeued.push(job);
         },

@@ -3,7 +3,12 @@ import { randomUUID } from "node:crypto";
 import { db } from "@hermes/db";
 import { indexArtifactVersion, indexSSOTVersion } from "./indexing.js";
 import { hybridRetrieve, type EmbeddingFunction } from "./retrieval.js";
-import { createEmployee, createProject, createTeam, grantCapability } from "../../../test/fixtures/db-helpers.js";
+import {
+  createEmployee,
+  createProject,
+  createTeam,
+  grantCapability,
+} from "../../../test/fixtures/db-helpers.js";
 import { createSubmission } from "@hermes/artifacts";
 
 class MockEmbeddingFn implements EmbeddingFunction {
@@ -168,7 +173,9 @@ describe("hybridRetrieve", () => {
       limit: 10,
       embeddingFn: new MockEmbeddingFn(),
     });
-    expect(results.every((result) => !result.text.includes("Project confidential roadmap"))).toBe(true);
+    expect(results.every((result) => !result.text.includes("Project confidential roadmap"))).toBe(
+      true,
+    );
   });
   it("returns COMPANY chunks only for employees with company-read capability", async () => {
     const emp = await createEmployee();
@@ -282,5 +289,36 @@ describe("hybridRetrieve", () => {
       embeddingFn: new MockEmbeddingFn(),
     });
     expect(denied.every((r) => !r.text.includes("Linked private source"))).toBe(true);
+  });
+
+  it("retrieves punctuation-heavy identifiers exactly", async () => {
+    const emp = await createEmployee();
+    await grantCapability(emp.id, "KNOWLEDGE_READ_PERSONAL");
+    const identifiers = [
+      "RL8-PRJ-2026-0047",
+      "INV/2026/8821",
+      "OPS_RUNBOOK_V3",
+      "person@example.com",
+      "A9/B.17",
+    ];
+    const { artifact } = await setupArtifactWithContent(identifiers.join(" | "));
+    await createSubmission({
+      artifactId: artifact.id,
+      submittedByEmployeeId: emp.id,
+      ownerEmployeeId: emp.id,
+      scope: "PERSONAL",
+      knowledgeStatus: "REFERENCE",
+    });
+    for (const identifier of identifiers) {
+      const embedding = await new MockEmbeddingFn().embed(identifier);
+      const results = await hybridRetrieve({
+        employeeId: emp.id,
+        query: identifier,
+        queryEmbedding: embedding,
+        limit: 10,
+        embeddingFn: new MockEmbeddingFn(),
+      });
+      expect(results.some((result) => result.text.includes(identifier))).toBe(true);
+    }
   });
 });

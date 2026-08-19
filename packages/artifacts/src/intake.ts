@@ -70,8 +70,8 @@ export async function ingestImportedFile(input: IngestImportedFileInput): Promis
   const versionNumber = (latestVersion?.versionNumber ?? 0) + 1;
 
   // Store content in object storage.
-  const objectKey = `artifacts/${artifact.id}/v${versionNumber}/content`;
-  await input.storage.putObject(input.bucket, objectKey, input.content, input.mimeType);
+  const originalObjectKey = `artifacts/${artifact.id}/v${versionNumber}/original`;
+  await input.storage.putObject(input.bucket, originalObjectKey, input.content, input.mimeType);
 
   // Create the version record.
   const version = await db.artifactVersion.create({
@@ -79,7 +79,8 @@ export async function ingestImportedFile(input: IngestImportedFileInput): Promis
       artifactId: artifact.id,
       versionNumber,
       contentHash,
-      extractedTextObjectKey: objectKey,
+      originalObjectKey,
+      extractionStatus: "UPLOADED",
     },
   });
 

@@ -1,5 +1,9 @@
-import { extractText } from "@hermes/artifacts";
-import { indexArtifactVersion, type EmbeddingFunction } from "@hermes/knowledge";
+import {
+  extractDocument,
+  type DocumentProcessingLimits,
+  type ExtractedDocument,
+} from "@hermes/artifacts";
+import { indexArtifactVersion, type EmbeddingFunction, type IndexSegment } from "@hermes/knowledge";
 import type { KnowledgeChunk } from "@hermes/db";
 
 export interface ProcessArtifactInput {
@@ -8,6 +12,12 @@ export interface ProcessArtifactInput {
   mimeType: string;
   filename: string;
   embeddingFn: EmbeddingFunction;
+  limits?: DocumentProcessingLimits;
+}
+
+export interface ProcessArtifactResult {
+  chunks: KnowledgeChunk[];
+  extracted: ExtractedDocument;
 }
 
 export class DeterministicEmbeddingFunction implements EmbeddingFunction {
@@ -20,11 +30,29 @@ export class DeterministicEmbeddingFunction implements EmbeddingFunction {
   }
 }
 
-export async function processTextArtifact(input: ProcessArtifactInput): Promise<KnowledgeChunk[]> {
-  const text = extractText(input.content, input.mimeType, input.filename);
-  return indexArtifactVersion({
+export async function processDocumentArtifact(
+  input: ProcessArtifactInput,
+): Promise<ProcessArtifactResult> {
+  const extracted = await extractDocument(
+    input.content,
+    input.mimeType,
+    input.filename,
+    input.limits,
+  );
+  const segments: IndexSegment[] = extracted.segments.map((segment) => ({
+    text: segment.text,
+    pageNumber: segment.pageNumber,
+    sheetName: segment.sheetName,
+    sourceLocator: segment.sourceLocator,
+  }));
+  const chunks = await indexArtifactVersion({
     artifactVersionId: input.artifactVersionId,
-    text,
+    segments,
     embeddingFn: input.embeddingFn,
   });
+  return { chunks, extracted };
+}
+
+export async function processTextArtifact(input: ProcessArtifactInput): Promise<KnowledgeChunk[]> {
+  return (await processDocumentArtifact(input)).chunks;
 }

@@ -92,6 +92,14 @@ enum SyncState {
   ERROR
 }
 
+enum ExtractionStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+  UNSUPPORTED
+}
+
 enum MemoryType {
   PREFERENCE
   RESPONSIBILITY
@@ -462,7 +470,12 @@ model ArtifactVersion {
   versionNumber        Int
   sourceVersionId      String?
   contentHash          String
+  originalObjectKey    String?
   extractedTextObjectKey String?
+  extractionStatus     ExtractionStatus @default(UPLOADED)
+  extractionError      String?
+  extractionMetadata   Json?
+  extractedAt          DateTime?
   sourceModifiedAt     DateTime?
   effectiveFrom        DateTime?
   effectiveUntil       DateTime?

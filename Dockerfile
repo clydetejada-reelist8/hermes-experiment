@@ -12,6 +12,7 @@
 ARG NODE_VERSION=22
 ARG GIT_COMMIT=unknown
 ARG BUILD_TIME=unknown
+ARG SCHEMA_VERSION=20260819120000_document_extraction_support
 
 # ---------------------------------------------------------------------------
 # Stage 1: Install dependencies
@@ -31,6 +32,12 @@ RUN pnpm install --frozen-lockfile
 FROM node:${NODE_VERSION}-slim AS builder
 WORKDIR /app
 RUN corepack enable
+ARG GIT_COMMIT
+ARG BUILD_TIME
+ARG SCHEMA_VERSION
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV BUILD_TIME=${BUILD_TIME}
+ENV SCHEMA_VERSION=${SCHEMA_VERSION}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm --filter @hermes/db exec prisma generate --schema prisma/schema.prisma
@@ -46,11 +53,12 @@ WORKDIR /app
 ARG APP=api
 ARG GIT_COMMIT=unknown
 ARG BUILD_TIME=unknown
+ARG SCHEMA_VERSION=20260819120000_document_extraction_support
 ENV NODE_ENV=production
 ENV APP_NAME=${APP}
 ENV GIT_COMMIT=${GIT_COMMIT}
 ENV BUILD_TIME=${BUILD_TIME}
-ENV SCHEMA_VERSION=20260819040000_add_reminders_write_capability
+ENV SCHEMA_VERSION=${SCHEMA_VERSION}
 
 RUN corepack enable
 
