@@ -12,10 +12,7 @@ import {
 } from "./employee-access.js";
 
 export type AdminChangeOperation =
-  | "GRANT_ROLE"
-  | "REVOKE_ROLE"
-  | "GRANT_AUTHORITY"
-  | "REVOKE_AUTHORITY";
+  "GRANT_ROLE" | "REVOKE_ROLE" | "GRANT_AUTHORITY" | "REVOKE_AUTHORITY";
 
 export interface PrepareAdminChangeInput {
   requesterEmployeeId: string;

@@ -90,11 +90,7 @@ export interface ResolvedIdentity {
 }
 
 export type UploadDestination =
-  | "FOR_ME_ONLY"
-  | "TEAM_REFERENCE"
-  | "PROJECT_REFERENCE"
-  | "COMPANY_REFERENCE"
-  | "SSOT_REVIEW";
+  "FOR_ME_ONLY" | "TEAM_REFERENCE" | "PROJECT_REFERENCE" | "COMPANY_REFERENCE" | "SSOT_REVIEW";
 
 export interface CreateUploadInput {
   employeeId: string;
