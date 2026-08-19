@@ -1,4 +1,4 @@
-import { db } from "@hermes/db";
+import { db, Prisma } from "@hermes/db";
 import type { AuditEventType } from "./events.js";
 
 export type { AuditEventType } from "./events.js";
@@ -49,7 +49,7 @@ export async function audit(input: AuditInput): Promise<void> {
       conversationId: input.conversationId,
       resourceType: input.resourceType,
       resourceId: input.resourceId,
-      metadata: sanitizeMetadata(input.metadata) ?? undefined,
+      metadata: sanitizeMetadata(input.metadata) as Prisma.InputJsonValue | undefined,
     },
   });
 }

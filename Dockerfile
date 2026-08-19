@@ -10,6 +10,8 @@
 #   docker build --build-arg APP=worker -t hermes-worker .
 
 ARG NODE_VERSION=22
+ARG GIT_COMMIT=unknown
+ARG BUILD_TIME=unknown
 
 # ---------------------------------------------------------------------------
 # Stage 1: Install dependencies
@@ -18,8 +20,9 @@ FROM node:${NODE_VERSION}-slim AS deps
 WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY packages/*/package.json packages/*/
-COPY apps/*/package.json apps/*/
+COPY packages ./packages
+COPY apps ./apps
+COPY scripts ./scripts
 RUN pnpm install --frozen-lockfile
 
 # ---------------------------------------------------------------------------
@@ -30,9 +33,9 @@ WORKDIR /app
 RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN pnpm prisma generate
+RUN pnpm --filter @hermes/db exec prisma generate --schema prisma/schema.prisma
 RUN pnpm typecheck
-RUN pnpm build || true
+RUN pnpm build
 
 # ---------------------------------------------------------------------------
 # Stage 3: Production image
@@ -41,12 +44,17 @@ FROM node:${NODE_VERSION}-slim AS runner
 WORKDIR /app
 
 ARG APP=api
+ARG GIT_COMMIT=unknown
+ARG BUILD_TIME=unknown
 ENV NODE_ENV=production
 ENV APP_NAME=${APP}
+ENV GIT_COMMIT=${GIT_COMMIT}
+ENV BUILD_TIME=${BUILD_TIME}
+ENV SCHEMA_VERSION=20260819040000_add_reminders_write_capability
 
 RUN corepack enable
 
-COPY --from=builder /app/package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/apps ./apps
 COPY --from=builder /app/node_modules ./node_modules
@@ -57,4 +65,4 @@ COPY --from=builder /app/packages/db/src/generated ./packages/db/src/generated
 EXPOSE 3000
 
 # The entrypoint runs the specified app
-CMD ["sh", "-c", "node apps/${APP_NAME}/dist/index.js"]
+CMD ["sh", "-c", "case \"$APP_NAME\" in api) exec node apps/api/dist/server.js ;; worker) exec node apps/worker/dist/main.js ;; *) exec node apps/$APP_NAME/dist/index.js ;; esac"]

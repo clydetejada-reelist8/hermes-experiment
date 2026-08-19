@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { stat } from "node:fs/promises";
 import Fastify, { type FastifyInstance } from "fastify";
 import {
   CalendarActionExecutor,
@@ -11,6 +12,7 @@ import {
   parseActionProposal,
   transitionAction,
   validateProposal,
+  authorizeActionType,
 } from "@hermes/actions";
 import { db } from "@hermes/db";
 import { classifySubmission, createSubmission, ingestImportedFile } from "@hermes/artifacts";
@@ -37,6 +39,7 @@ import {
   saveConnection,
 } from "@hermes/google";
 import { ObjectStorage } from "@hermes/storage";
+import { RedisListQueue } from "@hermes/worker";
 import {
   addMemory,
   deleteMemory as deletePersonalMemory,
@@ -245,6 +248,17 @@ async function defaultReadinessCheck(): Promise<ReadinessResult> {
   } catch {
     dependencies.database = "unavailable";
   }
+
+  const heartbeatFile = process.env.WORKER_HEARTBEAT_FILE;
+  if (heartbeatFile) {
+    try {
+      const heartbeat = await stat(heartbeatFile);
+      dependencies.worker = Date.now() - heartbeat.mtimeMs <= 30_000 ? "ok" : "stale";
+    } catch {
+      dependencies.worker = "unavailable";
+    }
+  }
+
   return {
     ready: dependencies.database === "ok" && dependencies.worker === "ok",
     dependencies,
@@ -316,6 +330,11 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   });
 
   app.get("/health", async () => ({ status: "ok" }));
+  app.get("/version", async () => ({
+    gitCommit: process.env.GIT_COMMIT ?? "unknown",
+    buildTime: process.env.BUILD_TIME ?? "unknown",
+    schemaVersion: process.env.SCHEMA_VERSION ?? "20260819040000_add_reminders_write_capability",
+  }));
   app.get("/health/ready", async (_request, reply) => {
     const result = await readinessCheck();
     return reply.code(result.ready ? 200 : 503).send(result);
@@ -675,8 +694,8 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       if (error instanceof Error && error.message === "ssot_review_requires_authority_domain") {
         return reply.code(400).send({ error: "ssot_review_requires_authority_domain" });
       }
-      if (error instanceof Error && error.message === "upload_storage_not_configured") {
-        return reply.code(503).send({ error: "upload_storage_not_configured" });
+      if (error instanceof Error && ["upload_storage_not_configured", "ingestion_queue_not_configured"].includes(error.message)) {
+        return reply.code(503).send({ error: error.message });
       }
       request.log.error(error);
       return reply.code(500).send({ error: "upload_failed" });
@@ -879,6 +898,7 @@ async function defaultListReminders(input: ReminderRequestInput): Promise<Remind
 }
 
 async function defaultCreateReminder(input: ReminderRequestInput): Promise<ReminderRequestResult> {
+  await authorizeActionType(input.employeeId, "REMINDER_CREATE");
   if (!input.text || !input.dueAt || !input.timezone) throw new Error("reminder_create_invalid");
   return toReminderResult(
     await createReminder({
@@ -899,12 +919,14 @@ async function requireOwnedReminder(employeeId: string, reminderId: string): Pro
 async function defaultCompleteReminder(
   input: ReminderRequestInput,
 ): Promise<ReminderRequestResult> {
+  await authorizeActionType(input.employeeId, "REMINDER_COMPLETE");
   if (!input.reminderId) throw new Error("reminder_complete_invalid");
   await requireOwnedReminder(input.employeeId, input.reminderId);
   return toReminderResult(await completeReminder(input.reminderId));
 }
 
 async function defaultCancelReminder(input: ReminderRequestInput): Promise<ReminderRequestResult> {
+  await authorizeActionType(input.employeeId, "REMINDER_DELETE");
   if (!input.reminderId) throw new Error("reminder_cancel_invalid");
   await requireOwnedReminder(input.employeeId, input.reminderId);
   return toReminderResult(await cancelReminder(input.reminderId));
@@ -935,6 +957,8 @@ function handleReminderError(
 ): unknown {
   if (error instanceof IdentityDeniedError)
     return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+  if (error instanceof Error && ["action_capability_denied", "action_feature_disabled", "action_kill_switch_active"].includes(error.message))
+    return reply.code(403).send({ error: error.message });
   if (error instanceof Error && error.message.endsWith("_not_found"))
     return reply.code(404).send({ error: error.message });
   request.log.error(error);
@@ -1065,6 +1089,7 @@ async function defaultPrepareAction(input: ActionRequestInput): Promise<ActionRe
   if (!input.actionType || !input.parameters || !input.idempotencyKey) {
     throw new Error("action_prepare_invalid");
   }
+  await authorizeActionType(input.employeeId, input.actionType);
   const proposal = parseActionProposal({
     actionType: input.actionType,
     parameters: input.parameters,
@@ -1139,6 +1164,7 @@ async function defaultConfirmAction(input: ActionRequestInput): Promise<ActionRe
   if (!input.actionId) throw new Error("action_confirm_invalid");
   const action = await getStoredAction(input.actionId);
   if (!action || action.employeeId !== input.employeeId) throw new Error("action_not_found");
+  await authorizeActionType(input.employeeId, action.type);
   if (action.status !== "AWAITING_CONFIRMATION")
     throw new Error("action_confirmation_not_required");
   const confirmedParametersHash = createHash("sha256")
@@ -1154,6 +1180,7 @@ async function defaultExecuteAction(input: ActionRequestInput): Promise<ActionRe
   if (!input.actionId) throw new Error("action_execute_invalid");
   const action = await getStoredAction(input.actionId);
   if (!action || action.employeeId !== input.employeeId) throw new Error("action_not_found");
+  await authorizeActionType(input.employeeId, action.type);
   const providers = await googleExecutors(input.employeeId);
   switch (action.type) {
     case "GMAIL_SEND_DRAFT":
@@ -1403,6 +1430,9 @@ async function runActionRequest(
     if (error instanceof IdentityDeniedError) {
       return reply.code(403).send({ error: "identity_denied", reason: error.reason });
     }
+    if (error instanceof Error && ["action_capability_denied", "action_feature_disabled", "action_kill_switch_active"].includes(error.message)) {
+      return reply.code(403).send({ error: error.message });
+    }
     if (error instanceof Error && error.message.endsWith("_not_configured")) {
       return reply.code(503).send({ error: error.message });
     }
@@ -1518,6 +1548,22 @@ async function defaultCreateUpload(input: CreateUploadInput): Promise<CreateUplo
     });
     proposalId = proposal.id;
   }
+
+  if (!cfg.redisUrl) throw new Error("ingestion_queue_not_configured");
+  const queue = new RedisListQueue(cfg.redisUrl);
+  await queue.enqueue("hermes.jobs", {
+    id: `artifact-ingestion-${imported.version.id}`,
+    name: "artifact-ingestion",
+    data: {
+      artifactVersionId: imported.version.id,
+      objectKey: imported.version.extractedTextObjectKey,
+      bucket: cfg.objectStorageBucket,
+      mimeType: input.mimeType,
+      filename: input.originalFilename,
+      retryCount: 0,
+      maxRetries: 3,
+    },
+  });
 
   return {
     uploadId: submission.id,

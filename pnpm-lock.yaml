@@ -70,6 +70,9 @@ importers:
       "@hermes/storage":
         specifier: workspace:*
         version: link:../../packages/storage
+      "@hermes/worker":
+        specifier: workspace:*
+        version: link:../worker
       fastify:
         specifier: ^5.2.1
         version: 5.12.0
@@ -112,21 +115,33 @@ importers:
       "@hermes/artifacts":
         specifier: workspace:*
         version: link:../../packages/artifacts
+      "@hermes/config":
+        specifier: workspace:*
+        version: link:../../packages/config
       "@hermes/db":
         specifier: workspace:*
         version: link:../../packages/db
       "@hermes/knowledge":
         specifier: workspace:*
         version: link:../../packages/knowledge
+      "@hermes/storage":
+        specifier: workspace:*
+        version: link:../../packages/storage
 
   packages/actions:
     dependencies:
+      "@hermes/admin":
+        specifier: workspace:*
+        version: link:../admin
       "@hermes/contracts":
         specifier: workspace:*
         version: link:../contracts
       "@hermes/db":
         specifier: workspace:*
         version: link:../db
+      "@hermes/policy":
+        specifier: workspace:*
+        version: link:../policy
 
   packages/admin:
     dependencies:
@@ -217,6 +232,9 @@ importers:
       "@hermes/db":
         specifier: workspace:*
         version: link:../db
+      "@hermes/policy":
+        specifier: workspace:*
+        version: link:../policy
 
   packages/llm:
     dependencies:

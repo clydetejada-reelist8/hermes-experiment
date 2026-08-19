@@ -3,6 +3,8 @@ import type { ArtifactScope, Capability, PolicyDecision } from "@hermes/contract
 import { allow, deny } from "@hermes/contracts";
 
 export type { PolicyDecision } from "@hermes/contracts";
+export { getKnowledgeAccessContext, hasKnowledgeCapability, KnowledgeAccessDeniedError } from "./knowledge.js";
+export type { KnowledgeAccessContext } from "./knowledge.js";
 
 /**
  * Deterministic Hermes policy engine.

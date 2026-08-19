@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { WorkerRunner } from "./runner.js";
+import type { QueueJob } from "./queue.js";
 
 describe("WorkerRunner", () => {
   it("dispatches a queued job to the named handler", async () => {
@@ -23,11 +24,25 @@ describe("WorkerRunner", () => {
     expect(processed).toEqual(["v1"]);
   });
 
-  it("fails closed when no handler exists", async () => {
+  it("re-enqueues a failed job until its retry limit", async () => {
+    const requeued: QueueJob<unknown>[] = [];
     const runner = new WorkerRunner(
-      { dequeue: async () => ({ id: "job-1", name: "unknown", data: {} }) },
-      {},
+      {
+        dequeue: async () => ({ id: "job-1", name: "artifact-ingestion", data: { retryCount: 0, maxRetries: 2 } }),
+        enqueue: async (_queue, job) => {
+          requeued.push(job);
+        },
+      },
+      {
+        "artifact-ingestion": async () => {
+          throw new Error("temporary_failure");
+        },
+      },
     );
-    await expect(runner.runOnce("hermes.jobs")).rejects.toThrow("worker_handler_not_found");
+
+    await expect(runner.runOnce("hermes.jobs")).rejects.toThrow("temporary_failure");
+    expect(requeued).toEqual([
+      { id: "job-1", name: "artifact-ingestion", data: { retryCount: 1, maxRetries: 2 } },
+    ]);
   });
 });

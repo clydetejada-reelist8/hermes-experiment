@@ -6,7 +6,7 @@ import { createSubmission } from "@hermes/artifacts";
 import { addMemory } from "@hermes/memory";
 import { AskOrchestrator } from "./ask.js";
 import type { EmbeddingFunction } from "@hermes/knowledge";
-import { createEmployee } from "../../../test/fixtures/db-helpers.js";
+import { createEmployee, grantCapability } from "../../../test/fixtures/db-helpers.js";
 
 class MockEmbeddingFn implements EmbeddingFunction {
   async embed(text: string): Promise<number[]> {
@@ -36,6 +36,7 @@ class MockLLM {
 }
 
 async function setupKnowledgeBase(empId: string) {
+  await grantCapability(empId, "KNOWLEDGE_READ_PERSONAL");
   const artifact = await db.artifact.create({
     data: {
       type: "TEXT",

@@ -96,6 +96,7 @@ export const CapabilityEnum = [
   "CALENDAR_INVITE_OTHERS",
   "CALENDAR_UPDATE_EVENT",
   "CALENDAR_CANCEL_EVENT",
+  "REMINDERS_WRITE",
   "HERMES_ADMIN",
 ] as const;
 export type Capability = (typeof CapabilityEnum)[number];

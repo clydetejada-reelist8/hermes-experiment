@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -b tsconfig.json && cp -R src/generated dist/generated",
+    "build": "tsc -b tsconfig.json && rm -rf dist/generated && cp -R src/generated dist/generated",
     "typecheck": "tsc -b tsconfig.json",
     "postinstall": "prisma generate",
     "db:generate": "prisma generate",
