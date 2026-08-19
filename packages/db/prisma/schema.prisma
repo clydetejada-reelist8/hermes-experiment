@@ -152,6 +152,7 @@ enum Capability {
   CALENDAR_CANCEL_EVENT
   REMINDERS_WRITE
   HERMES_ADMIN
+  EMPLOYEE_ENROLL
 }
 
 enum SSOTProposalStatus {
@@ -240,6 +241,9 @@ model Employee {
   ssotVersionsApproved SSOTVersion[]
   ssotProposals       SSOTProposal[]
   auditEvents         AuditEvent[]
+  adminChangesRequested AdminChangeRequest[] @relation("AdminChangeRequester")
+  adminChangesTargeted AdminChangeRequest[] @relation("AdminChangeTarget")
+  enrollmentRequests   EmployeeEnrollmentRequest[]
 
   @@index([employmentStatus, stagingAllowlisted])
 }
@@ -754,9 +758,55 @@ model Reminder {
   @@index([status, dueAt])
 }
 
+model AdminChangeRequest {
+  id                 String              @id @default(uuid())
+  requesterEmployeeId String
+  targetEmployeeId   String
+  operation          String
+  roleKey            String?
+  authorityDomain    String?
+  authorityPermission AuthorityPermission?
+  status             String              @default("AWAITING_CONFIRMATION")
+  createdAt          DateTime            @default(now())
+  confirmedAt        DateTime?
+  executedAt         DateTime?
+
+  requester Employee @relation("AdminChangeRequester", fields: [requesterEmployeeId], references: [id], onDelete: Cascade)
+  target    Employee @relation("AdminChangeTarget", fields: [targetEmployeeId], references: [id], onDelete: Cascade)
+
+  @@index([requesterEmployeeId, status])
+  @@index([targetEmployeeId, status])
+}
+
 // ---------------------------------------------------------------------------
 // Audit & feature flags
 // ---------------------------------------------------------------------------
+
+model EmployeeEnrollmentRequest {
+  id                  String   @id @default(uuid())
+  requesterEmployeeId String
+  existingEmployeeId  String?
+  mode                String   @default("ENROLL")
+  fullName            String
+  companyEmail        String
+  timezone            String
+  discordUserId       String
+  employeeCode        String
+  initialRoleKeys     String[]
+  stagingAllowlisted  Boolean  @default(false)
+  status              String   @default("AWAITING_CONFIRMATION")
+  createdAt           DateTime @default(now())
+  confirmedAt         DateTime?
+  executedAt          DateTime?
+  cancelledAt         DateTime?
+
+  requester Employee @relation(fields: [requesterEmployeeId], references: [id], onDelete: Cascade)
+
+  @@index([requesterEmployeeId, status])
+  @@index([discordUserId])
+  @@index([employeeCode])
+  @@index([companyEmail])
+}
 
 model AuditEvent {
   id            String   @id @default(uuid())

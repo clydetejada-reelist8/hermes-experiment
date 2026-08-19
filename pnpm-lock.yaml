@@ -46,6 +46,9 @@ importers:
       "@hermes/actions":
         specifier: workspace:*
         version: link:../../packages/actions
+      "@hermes/admin":
+        specifier: workspace:*
+        version: link:../../packages/admin
       "@hermes/artifacts":
         specifier: workspace:*
         version: link:../../packages/artifacts
@@ -154,6 +157,9 @@ importers:
 
   packages/admin:
     dependencies:
+      "@hermes/audit":
+        specifier: workspace:*
+        version: link:../audit
       "@hermes/contracts":
         specifier: workspace:*
         version: link:../contracts

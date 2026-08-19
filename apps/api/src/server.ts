@@ -68,6 +68,17 @@ import {
   type ReviewQueueProposal,
   type SSOTDocument,
 } from "@hermes/ssot";
+import {
+  cancelEmployeeEnrollment,
+  confirmAdminChange,
+  confirmEmployeeEnrollment,
+  executeAdminChange,
+  executeEmployeeEnrollment,
+  getEmployeeEnrollment,
+  prepareAdminChange,
+  prepareEmployeeEnrollment,
+  prepareEmployeeIdentityLink,
+} from "@hermes/admin";
 import { searchVisibleKnowledge, type SearchEvidence, type SearchInput } from "./search.js";
 
 export interface ResolvedIdentity {
@@ -79,7 +90,11 @@ export interface ResolvedIdentity {
 }
 
 export type UploadDestination =
-  "FOR_ME_ONLY" | "TEAM_REFERENCE" | "PROJECT_REFERENCE" | "COMPANY_REFERENCE" | "SSOT_REVIEW";
+  | "FOR_ME_ONLY"
+  | "TEAM_REFERENCE"
+  | "PROJECT_REFERENCE"
+  | "COMPANY_REFERENCE"
+  | "SSOT_REVIEW";
 
 export interface CreateUploadInput {
   employeeId: string;
@@ -413,6 +428,215 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   });
   app.get("/v1/health", async () => ({ status: "ok" }));
   app.get("/v1/echo", async () => ({ status: "ok", echo: true }));
+
+  app.post<{
+    Body: {
+      discordUserId?: string;
+      targetEmployeeCode?: string;
+      operation?: "GRANT_ROLE" | "REVOKE_ROLE" | "GRANT_AUTHORITY" | "REVOKE_AUTHORITY";
+      roleKey?: string;
+      authorityDomain?: string;
+      authorityPermission?: "REVIEW" | "APPROVE";
+    };
+  }>("/v1/admin/changes/prepare", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.discordUserId?.trim() || !body.targetEmployeeCode?.trim() || !body.operation) {
+      return reply.code(400).send({ error: "invalid_admin_change_request" });
+    }
+    try {
+      const requester = await resolveIdentity(body.discordUserId.trim());
+      const change = await prepareAdminChange({
+        requesterEmployeeId: requester.id,
+        targetEmployeeCode: body.targetEmployeeCode.trim(),
+        operation: body.operation,
+        roleKey: body.roleKey?.trim(),
+        authorityDomain: body.authorityDomain?.trim(),
+        authorityPermission: body.authorityPermission,
+      });
+      return reply.code(201).send({
+        requestId: change.id,
+        status: change.status,
+        operation: change.operation,
+        targetEmployeeId: change.targetEmployeeId,
+        roleKey: change.roleKey,
+        authorityDomain: change.authorityDomain,
+        authorityPermission: change.authorityPermission,
+      });
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "admin_change_denied" });
+    }
+  });
+
+  app.post<{
+    Params: { requestId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/changes/:requestId/confirm", async (request, reply) => {
+    const discordUserId = request.body?.discordUserId?.trim();
+    if (!discordUserId) return reply.code(400).send({ error: "invalid_admin_confirmation" });
+    try {
+      const requester = await resolveIdentity(discordUserId);
+      const change = await confirmAdminChange(request.params.requestId, requester.id);
+      return { requestId: change.id, status: change.status, confirmedAt: change.confirmedAt };
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "admin_confirmation_denied" });
+    }
+  });
+
+  app.post<{
+    Params: { requestId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/changes/:requestId/execute", async (request, reply) => {
+    const discordUserId = request.body?.discordUserId?.trim();
+    if (!discordUserId) return reply.code(400).send({ error: "invalid_admin_execution" });
+    try {
+      const requester = await resolveIdentity(discordUserId);
+      return await executeAdminChange(request.params.requestId, requester.id);
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "admin_execution_denied" });
+    }
+  });
+
+  app.post<{
+    Body: { discordUserId?: string; employeeCode?: string; targetDiscordUserId?: string };
+  }>("/v1/admin/identity-links/prepare", async (request, reply) => {
+    const body = request.body ?? {};
+    if (
+      !body.discordUserId?.trim() ||
+      !body.employeeCode?.trim() ||
+      !body.targetDiscordUserId?.trim()
+    ) {
+      return reply.code(400).send({ error: "invalid_identity_link_request" });
+    }
+    try {
+      const requester = await resolveIdentity(body.discordUserId.trim());
+      return reply.code(201).send(
+        await prepareEmployeeIdentityLink({
+          requesterEmployeeId: requester.id,
+          employeeCode: body.employeeCode,
+          discordUserId: body.targetDiscordUserId,
+        }),
+      );
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "identity_link_denied" });
+    }
+  });
+
+  app.post<{
+    Body: {
+      discordUserId?: string;
+      fullName?: string;
+      companyEmail?: string;
+      timezone?: string;
+      targetDiscordUserId?: string;
+      employeeCode?: string;
+      initialRoleKeys?: string[];
+      stagingAllowlisted?: boolean;
+    };
+  }>("/v1/admin/enrollments/prepare", async (request, reply) => {
+    const body = request.body ?? {};
+    if (
+      !body.discordUserId?.trim() ||
+      !body.fullName?.trim() ||
+      !body.companyEmail?.trim() ||
+      !body.timezone?.trim() ||
+      !body.targetDiscordUserId?.trim() ||
+      !body.employeeCode?.trim() ||
+      !body.initialRoleKeys?.length
+    ) {
+      return reply.code(400).send({ error: "invalid_enrollment_request" });
+    }
+    try {
+      const requester = await resolveIdentity(body.discordUserId.trim());
+      return reply.code(201).send(
+        await prepareEmployeeEnrollment({
+          requesterEmployeeId: requester.id,
+          fullName: body.fullName,
+          companyEmail: body.companyEmail,
+          timezone: body.timezone,
+          discordUserId: body.targetDiscordUserId,
+          employeeCode: body.employeeCode,
+          initialRoleKeys: body.initialRoleKeys,
+          stagingAllowlisted: body.stagingAllowlisted ?? false,
+        }),
+      );
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "enrollment_denied" });
+    }
+  });
+
+  app.post<{
+    Params: { enrollmentId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/enrollments/:enrollmentId/confirm", async (request, reply) => {
+    if (!request.body?.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_enrollment_confirmation" });
+    try {
+      const requester = await resolveIdentity(request.body.discordUserId.trim());
+      return await confirmEmployeeEnrollment(request.params.enrollmentId, requester.id);
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "enrollment_confirmation_denied" });
+    }
+  });
+
+  app.get<{
+    Params: { enrollmentId: string };
+    Querystring: { discordUserId?: string };
+  }>("/v1/admin/enrollments/:enrollmentId", async (request, reply) => {
+    if (!request.query.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_enrollment_status" });
+    try {
+      const requester = await resolveIdentity(request.query.discordUserId.trim());
+      return await getEmployeeEnrollment(request.params.enrollmentId, requester.id);
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "enrollment_status_denied" });
+    }
+  });
+
+  app.post<{
+    Params: { enrollmentId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/enrollments/:enrollmentId/cancel", async (request, reply) => {
+    if (!request.body?.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_enrollment_cancellation" });
+    try {
+      const requester = await resolveIdentity(request.body.discordUserId.trim());
+      return await cancelEmployeeEnrollment(request.params.enrollmentId, requester.id);
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "enrollment_cancellation_denied" });
+    }
+  });
+
+  app.post<{
+    Params: { enrollmentId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/enrollments/:enrollmentId/execute", async (request, reply) => {
+    if (!request.body?.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_enrollment_execution" });
+    try {
+      const requester = await resolveIdentity(request.body.discordUserId.trim());
+      return await executeEmployeeEnrollment(request.params.enrollmentId, requester.id);
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "enrollment_execution_denied" });
+    }
+  });
 
   app.post<{ Body: { provider?: string; subjectId?: string } }>(
     "/v1/identity/resolve",

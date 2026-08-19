@@ -288,6 +288,106 @@ def reelist8_cancel_action(discord_user_id: str, action_id: str) -> dict[str, An
     )
 
 
+@mcp.tool(description="Prepare linking a new immutable Discord identity to an existing employee code. This never creates a duplicate employee.")
+def reelist8_prepare_employee_identity_link(discord_user_id: str, employee_code: str, target_discord_user_id: str) -> dict[str, Any]:
+    return _post("/v1/admin/identity-links/prepare", {
+        "discordUserId": discord_user_id.strip(),
+        "employeeCode": employee_code.strip(),
+        "targetDiscordUserId": target_discord_user_id.strip(),
+    })
+
+
+@mcp.tool(description="Prepare a governed staging employee enrollment. Requires an authorized requester, approved RL8 employee code, verified fields, and explicit initial roles; writes nothing.")
+def reelist8_prepare_employee_enrollment(
+    discord_user_id: str,
+    full_name: str,
+    company_email: str,
+    timezone: str,
+    target_discord_user_id: str,
+    employee_code: str,
+    initial_role_keys: list[str],
+    staging_allowlisted: bool = False,
+) -> dict[str, Any]:
+    return _post("/v1/admin/enrollments/prepare", {
+        "discordUserId": discord_user_id.strip(),
+        "fullName": full_name,
+        "companyEmail": company_email,
+        "timezone": timezone,
+        "targetDiscordUserId": target_discord_user_id.strip(),
+        "employeeCode": employee_code.strip(),
+        "initialRoleKeys": initial_role_keys,
+        "stagingAllowlisted": staging_allowlisted,
+    })
+
+
+@mcp.tool(description="Confirm a prepared staging employee enrollment. Confirmation is required before the transaction can execute.")
+def reelist8_confirm_employee_enrollment(discord_user_id: str, enrollment_id: str) -> dict[str, Any]:
+    return _post(
+        f"/v1/admin/enrollments/{urllib.parse.quote(enrollment_id.strip(), safe='')}/confirm",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
+@mcp.tool(description="Get the status and summary of an employee enrollment prepared by the requesting admin.")
+def reelist8_get_employee_enrollment(discord_user_id: str, enrollment_id: str) -> dict[str, Any]:
+    return _get(
+        f"/v1/admin/enrollments/{urllib.parse.quote(enrollment_id.strip(), safe='')}",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
+@mcp.tool(description="Cancel a prepared or confirmed staging employee enrollment before execution.")
+def reelist8_cancel_employee_enrollment(discord_user_id: str, enrollment_id: str) -> dict[str, Any]:
+    return _post(
+        f"/v1/admin/enrollments/{urllib.parse.quote(enrollment_id.strip(), safe='')}/cancel",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
+@mcp.tool(description="Execute a confirmed staging employee enrollment in one Control Plane transaction.")
+def reelist8_execute_employee_enrollment(discord_user_id: str, enrollment_id: str) -> dict[str, Any]:
+    return _post(
+        f"/v1/admin/enrollments/{urllib.parse.quote(enrollment_id.strip(), safe='')}/execute",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
+@mcp.tool(description="Prepare a deterministic admin role or SSOT authority change. Execution requires confirmation; the Control Plane enforces HERMES_ADMIN.")
+def reelist8_prepare_admin_change(
+    discord_user_id: str,
+    target_employee_code: str,
+    operation: str,
+    role_key: str = "",
+    authority_domain: str = "",
+    authority_permission: str = "",
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "discordUserId": discord_user_id.strip(),
+        "targetEmployeeCode": target_employee_code.strip(),
+        "operation": operation.strip(),
+    }
+    if role_key.strip(): payload["roleKey"] = role_key.strip()
+    if authority_domain.strip(): payload["authorityDomain"] = authority_domain.strip()
+    if authority_permission.strip(): payload["authorityPermission"] = authority_permission.strip()
+    return _post("/v1/admin/changes/prepare", payload)
+
+
+@mcp.tool(description="Confirm a prepared admin role or SSOT authority change. Confirmation is required before execution, especially administrator escalation.")
+def reelist8_confirm_admin_change(discord_user_id: str, request_id: str) -> dict[str, Any]:
+    return _post(
+        f"/v1/admin/changes/{urllib.parse.quote(request_id.strip(), safe='')}/confirm",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
+@mcp.tool(description="Execute a confirmed deterministic admin role or SSOT authority change. The Control Plane rechecks HERMES_ADMIN and writes an audit event.")
+def reelist8_execute_admin_change(discord_user_id: str, request_id: str) -> dict[str, Any]:
+    return _post(
+        f"/v1/admin/changes/{urllib.parse.quote(request_id.strip(), safe='')}/execute",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
 @mcp.tool(description="Resolve a Discord user to a canonical REELIST8 employee identity.")
 def reelist8_resolve_identity(discord_user_id: str) -> dict[str, Any]:
     """Resolve a Discord user to a canonical REELIST8 employee identity."""

@@ -1,4 +1,22 @@
 export {
+  assertAdminManagementAllowed,
+  assertAdminPrivilegeConfirmation,
+  assertStagingBootstrapEnvironment,
+  bootstrapStagingOwner,
+  getEmployeeCapabilities,
+} from "./employee-access.js";
+export { confirmAdminChange, executeAdminChange, prepareAdminChange } from "./management.js";
+
+export {
+  cancelEmployeeEnrollment,
+  confirmEmployeeEnrollment,
+  executeEmployeeEnrollment,
+  getEmployeeEnrollment,
+  prepareEmployeeEnrollment,
+  prepareEmployeeIdentityLink,
+} from "./enrollment.js";
+
+export {
   getFeatureFlag,
   setFeatureFlag,
   isFeatureEnabled,
