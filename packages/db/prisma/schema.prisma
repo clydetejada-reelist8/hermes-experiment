@@ -153,6 +153,7 @@ enum Capability {
   REMINDERS_WRITE
   HERMES_ADMIN
   EMPLOYEE_ENROLL
+  EMPLOYEE_PROFILE_CORRECT
 }
 
 enum SSOTProposalStatus {
@@ -244,6 +245,8 @@ model Employee {
   adminChangesRequested AdminChangeRequest[] @relation("AdminChangeRequester")
   adminChangesTargeted AdminChangeRequest[] @relation("AdminChangeTarget")
   enrollmentRequests   EmployeeEnrollmentRequest[]
+  profileCorrectionsRequested EmployeeProfileCorrectionRequest[] @relation("ProfileCorrectionRequester")
+  profileCorrectionsTargeted  EmployeeProfileCorrectionRequest[] @relation("ProfileCorrectionTarget")
 
   @@index([employmentStatus, stagingAllowlisted])
 }
@@ -806,6 +809,25 @@ model EmployeeEnrollmentRequest {
   @@index([discordUserId])
   @@index([employeeCode])
   @@index([companyEmail])
+}
+
+model EmployeeProfileCorrectionRequest {
+  id                  String   @id @default(uuid())
+  requesterEmployeeId String
+  targetEmployeeId    String
+  oldDisplayName      String
+  newDisplayName      String
+  status              String   @default("AWAITING_CONFIRMATION")
+  createdAt           DateTime @default(now())
+  confirmedAt         DateTime?
+  executedAt          DateTime?
+  cancelledAt         DateTime?
+
+  requester Employee @relation("ProfileCorrectionRequester", fields: [requesterEmployeeId], references: [id], onDelete: Cascade)
+  target    Employee @relation("ProfileCorrectionTarget", fields: [targetEmployeeId], references: [id], onDelete: Cascade)
+
+  @@index([requesterEmployeeId, status])
+  @@index([targetEmployeeId, status])
 }
 
 model AuditEvent {

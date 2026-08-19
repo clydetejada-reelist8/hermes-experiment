@@ -17,6 +17,15 @@ export {
 } from "./enrollment.js";
 
 export {
+  cancelProfileCorrection,
+  confirmProfileCorrection,
+  executeProfileCorrection,
+  getProfileCorrection,
+  prepareProfileCorrection,
+  STAGING_PROFILE_CORRECTOR_ROLE,
+} from "./profile-corrections.js";
+
+export {
   getFeatureFlag,
   setFeatureFlag,
   isFeatureEnabled,

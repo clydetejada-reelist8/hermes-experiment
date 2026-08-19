@@ -4,6 +4,7 @@ import { audit } from "@hermes/audit";
 import {
   ADMIN_MANAGEABLE_ROLES,
   STAGING_ADMIN_ROLE,
+  STAGING_PROFILE_CORRECTOR_ROLE,
   STAGING_APPROVER_ROLE,
   STAGING_READER_ROLE,
   STAGING_REVIEW_ROLE,
@@ -28,6 +29,7 @@ const ROLE_NAMES: Record<string, string> = {
   [STAGING_REVIEW_ROLE]: "Staging SSOT Reviewer",
   [STAGING_APPROVER_ROLE]: "Staging SSOT Approver",
   [STAGING_ADMIN_ROLE]: "Staging Hermes Administrator",
+  [STAGING_PROFILE_CORRECTOR_ROLE]: "Staging Employee Profile Administrator",
 };
 
 function validateInput(input: PrepareAdminChangeInput): void {
