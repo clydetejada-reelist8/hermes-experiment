@@ -12,8 +12,9 @@ Hermes Agent gateway remains the employee-facing Discord and model runtime.
 A TypeScript `pnpm` monorepo deployed as a modular monolith behind Hermes:
 
 - `apps/api` — Fastify HTTP API, OAuth callbacks, admin/staging endpoints.
-- `apps/discord` — experimental standalone Discord edge; do not run it when the
-  existing Hermes gateway is the active Discord bot.
+- `apps/discord` — experimental standalone Discord edge; **development/test-only**.
+  It is not the production responder and must not run when the existing Hermes
+  gateway is active.
 - `apps/worker` — BullMQ background ingestion, embeddings, sync, revocation jobs.
 
 Shared `packages/*` provide contracts, database access, policy, memory,
@@ -49,6 +50,21 @@ Discord → existing Hermes gateway → Control Plane search → Hermes model �
 
 Do not configure a second Discord bot for this repository. The standalone
 `apps/discord` process is retained only as an experimental future edge.
+
+### Canonical production answer path
+
+The only supported production answer path is:
+
+```text
+Employee surface → Hermes Agent gateway/model → REELIST8 MCP → Control Plane
+                 → structured authorized evidence → Hermes response
+```
+
+`apps/discord/src/ask.ts` and its `AskOrchestrator` are development/test-only
+legacy code. They are not wired into the production API startup or the active
+Hermes MCP path. They remain available because their retrieval, egress, and
+citation helpers are useful for isolated tests, but they must not be deployed as
+a second answer responder.
 
 ## Commands
 
