@@ -952,6 +952,8 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
         return reply.code(403).send({ error: "identity_denied", reason: error.reason });
       if (error instanceof Error && error.message === "ssot_propose_denied")
         return reply.code(403).send({ error: error.message });
+      if (error instanceof Error && error.message.startsWith("ssot_authority_domain_not_found:"))
+        return reply.code(400).send({ error: error.message });
       request.log.error(error);
       return reply.code(500).send({ error: "ssot_proposal_failed" });
     }

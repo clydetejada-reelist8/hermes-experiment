@@ -4,6 +4,18 @@ import { evaluateCapability } from "@hermes/policy";
 
 export type { SSOTProposal, SSOTVersion, SSOTRecord };
 
+const AUTHORITY_DOMAIN_ALIASES: Record<string, string> = {
+  company: "company",
+  "company ssot": "company",
+  "company leadership": "company",
+  "company leadership ssot": "company",
+};
+
+export function normalizeAuthorityDomain(value: string): string {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, " ");
+  return AUTHORITY_DOMAIN_ALIASES[normalized] ?? normalized;
+}
+
 export interface CreateProposalInput {
   proposedByEmployeeId: string;
   authorityDomain: string;
@@ -19,10 +31,13 @@ export interface CreateProposalInput {
  * The proposed content will become an SSOT version if approved.
  */
 export async function createProposal(input: CreateProposalInput): Promise<SSOTProposal> {
+  const authorityDomain = normalizeAuthorityDomain(input.authorityDomain);
+  const domain = await db.authorityDomain.findUnique({ where: { domain: authorityDomain } });
+  if (!domain) throw new Error(`ssot_authority_domain_not_found:${authorityDomain}`);
   const proposal = await db.sSOTProposal.create({
     data: {
       proposedByEmployeeId: input.proposedByEmployeeId,
-      authorityDomain: input.authorityDomain,
+      authorityDomain,
       title: input.title,
       proposedContent: input.proposedContent,
       ssotRecordId: input.ssotRecordId,
