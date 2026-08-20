@@ -6,6 +6,7 @@ import {
   rejectProposal,
   requestChanges,
   getProposalsByDomain,
+  normalizeAuthorityDomain,
 } from "./proposal.js";
 import { createEmployee } from "../../../test/fixtures/db-helpers.js";
 
@@ -16,6 +17,17 @@ async function ensureDomain(domain: string) {
     update: {},
   });
 }
+
+describe("authority domain normalization", () => {
+  it("maps company-facing labels to the canonical company key", () => {
+    expect(normalizeAuthorityDomain("company SSOT")).toBe("company");
+    expect(normalizeAuthorityDomain("Company leadership")).toBe("company");
+  });
+
+  it("preserves known domain keys", () => {
+    expect(normalizeAuthorityDomain(" engineering ")).toBe("engineering");
+  });
+});
 
 describe("SSOT proposal lifecycle", () => {
   it("creates a proposal", async () => {
