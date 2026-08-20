@@ -9,26 +9,6 @@ export const STAGING_APPROVER_ROLE = "staging-ssot-approver";
 export const STAGING_READER_ROLE = "staging-company-reader";
 export const STAGING_PROFILE_CORRECTOR_ROLE = "staging-employee-profile-admin";
 
-export const STAGING_ROLE_CAPABILITIES: Record<string, Capability[]> = {
-  [STAGING_READER_ROLE]: ["KNOWLEDGE_READ_COMPANY"],
-  [STAGING_REVIEW_ROLE]: ["SSOT_REVIEW", "SSOT_PROPOSE"],
-  [STAGING_APPROVER_ROLE]: ["SSOT_APPROVE", "SSOT_PROPOSE"],
-  [STAGING_ADMIN_ROLE]: ["HERMES_ADMIN", "EMPLOYEE_ENROLL"],
-  [STAGING_PROFILE_CORRECTOR_ROLE]: ["EMPLOYEE_PROFILE_CORRECT"],
-};
-
-export const STAGING_ROLE_NAMES: Record<string, string> = {
-  [STAGING_READER_ROLE]: "Staging Company Reader",
-  [STAGING_REVIEW_ROLE]: "Staging SSOT Reviewer",
-  [STAGING_APPROVER_ROLE]: "Staging SSOT Approver",
-  [STAGING_ADMIN_ROLE]: "Staging Hermes Administrator",
-  [STAGING_PROFILE_CORRECTOR_ROLE]: "Staging Employee Profile Administrator",
-};
-
-export function getStagingRoleCapabilities(roleKey: string): Capability[] | undefined {
-  return STAGING_ROLE_CAPABILITIES[roleKey];
-}
-
 export const ADMIN_MANAGEABLE_ROLES = new Set([
   STAGING_REVIEW_ROLE,
   STAGING_APPROVER_ROLE,
