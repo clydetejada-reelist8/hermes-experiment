@@ -96,7 +96,10 @@ export const CapabilityEnum = [
   "CALENDAR_INVITE_OTHERS",
   "CALENDAR_UPDATE_EVENT",
   "CALENDAR_CANCEL_EVENT",
+  "REMINDERS_WRITE",
   "HERMES_ADMIN",
+  "EMPLOYEE_ENROLL",
+  "EMPLOYEE_PROFILE_CORRECT",
 ] as const;
 export type Capability = (typeof CapabilityEnum)[number];
 
@@ -184,5 +187,13 @@ export const AuditEventTypeEnum = [
   "ACTION_EXECUTED",
   "ACTION_FAILED",
   "FEATURE_FLAG_CHANGED",
+  "ADMIN_BOOTSTRAP",
+  "ADMIN_ROLE_GRANTED",
+  "ADMIN_ROLE_REVOKED",
+  "ADMIN_AUTHORITY_GRANTED",
+  "ADMIN_AUTHORITY_REVOKED",
+  "EMPLOYEE_ENROLLED",
+  "EMPLOYEE_IDENTITY_LINKED",
+  "EMPLOYEE_PROFILE_CORRECTED",
 ] as const;
 export type AuditEventType = (typeof AuditEventTypeEnum)[number];

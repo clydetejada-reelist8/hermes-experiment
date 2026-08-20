@@ -1,9 +1,62 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { stat } from "node:fs/promises";
 import Fastify, { type FastifyInstance } from "fastify";
-import { classifySubmission, createSubmission, ingestImportedFile } from "@hermes/artifacts";
-import type { ArtifactScope, KnowledgeStatus } from "@hermes/contracts";
-import { resolveDiscordEmployee, type Employee } from "@hermes/identity";
+import {
+  CalendarActionExecutor,
+  GmailActionExecutor,
+  cancelReminder,
+  completeReminder,
+  createReminder,
+  getRemindersForEmployee,
+  getAction as getStoredAction,
+  parseActionProposal,
+  transitionAction,
+  validateProposal,
+  authorizeActionType,
+} from "@hermes/actions";
+import { db } from "@hermes/db";
+import {
+  classifySubmission,
+  createSubmission,
+  ingestImportedFile,
+  documentProcessingLimitsFromEnv,
+} from "@hermes/artifacts";
+import type {
+  ArtifactScope,
+  KnowledgeStatus,
+  MemorySensitivity,
+  MemoryStatus,
+  MemoryType,
+} from "@hermes/contracts";
+import { evaluateCapability } from "@hermes/policy";
+import {
+  resolveDiscordEmployee,
+  resolveDiscordEmployeeProfile,
+  type Employee,
+  type EmployeeProfile,
+} from "@hermes/identity";
 import { IdentityDeniedError } from "@hermes/identity";
+import {
+  GoogleCalendarProvider,
+  GoogleGmailProvider,
+  GoogleOAuthAccessTokenSource,
+  buildGoogleAuthorizationUrl,
+  createOAuthState,
+  consumeOAuthState,
+  encryptToken,
+  getActiveConnection,
+  revokeConnection,
+  saveConnection,
+} from "@hermes/google";
 import { ObjectStorage } from "@hermes/storage";
+import { RedisListQueue } from "@hermes/worker";
+import {
+  addMemory,
+  deleteMemory as deletePersonalMemory,
+  getMemories,
+  updateMemory as updatePersonalMemory,
+} from "@hermes/memory";
 import {
   approveProposalAsReviewer,
   createProposal,
@@ -15,6 +68,22 @@ import {
   type ReviewQueueProposal,
   type SSOTDocument,
 } from "@hermes/ssot";
+import {
+  cancelEmployeeEnrollment,
+  confirmAdminChange,
+  confirmEmployeeEnrollment,
+  executeAdminChange,
+  executeEmployeeEnrollment,
+  getEmployeeEnrollment,
+  prepareAdminChange,
+  prepareEmployeeEnrollment,
+  cancelProfileCorrection,
+  confirmProfileCorrection,
+  executeProfileCorrection,
+  getProfileCorrection,
+  prepareProfileCorrection,
+  prepareEmployeeIdentityLink,
+} from "@hermes/admin";
 import { searchVisibleKnowledge, type SearchEvidence, type SearchInput } from "./search.js";
 
 export interface ResolvedIdentity {
@@ -22,6 +91,7 @@ export interface ResolvedIdentity {
   employeeCode: string;
   displayName: string;
   discordUserId: string;
+  profile?: EmployeeProfile;
 }
 
 export type UploadDestination =
@@ -46,16 +116,134 @@ export interface CreateUploadResult {
   scope: ArtifactScope;
   knowledgeStatus: KnowledgeStatus;
   dataSensitivity: string;
+  extractionStatus: string;
+  originalObjectKey?: string;
+  extractionError?: string;
+}
+
+export interface ActionRequestInput {
+  employeeId: string;
+  actionId?: string;
+  actionType?: string;
+  parameters?: Record<string, unknown>;
+  conversationId?: string;
+  idempotencyKey?: string;
+}
+
+export interface ActionRequestResult {
+  id: string;
+  status: string;
+  [key: string]: unknown;
+}
+
+export interface MemoryRequestInput {
+  employeeId: string;
+  memoryId?: string;
+  type?: string;
+  content?: string;
+  sensitivity?: string;
+  status?: string;
+}
+
+export interface MemoryRequestResult {
+  id: string;
+  employeeId: string;
+  [key: string]: unknown;
+}
+
+export interface AskRequestInput {
+  employeeId: string;
+  employeeName: string;
+  conversationId: string;
+  messageId: string;
+  text: string;
+}
+
+export interface AskRequestResult {
+  status: string;
+  text: string;
+  citations: unknown[];
+  limitations: string[];
+  conflictChunkIds: string[];
+}
+
+export interface GoogleConnectInput {
+  employeeId: string;
+  capabilities: string[];
+}
+
+export interface GoogleConnectionResult {
+  connected: boolean;
+  [key: string]: unknown;
+}
+
+export interface GoogleOAuthCallbackInput {
+  code: string;
+  state: string;
+}
+
+export interface SSOTProposalInput {
+  employeeId: string;
+  authorityDomain: string;
+  title: string;
+  proposedContent: string;
+  sourceArtifactIds?: string[];
+}
+
+export interface SSOTProposalResult {
+  proposalId: string;
+  status: string;
+}
+
+export interface ReminderRequestInput {
+  employeeId: string;
+  reminderId?: string;
+  text?: string;
+  dueAt?: string;
+  timezone?: string;
+}
+
+export interface ReminderRequestResult {
+  id: string;
+  employeeId: string;
+  status: string;
+  [key: string]: unknown;
+}
+
+export interface ReadinessResult {
+  ready: boolean;
+  dependencies: Record<string, string>;
 }
 
 export interface ServerOptions {
   internalServiceToken: string;
   logger?: boolean;
+  readinessCheck?: () => Promise<ReadinessResult>;
   resolveDiscordIdentity?: (discordUserId: string) => Promise<ResolvedIdentity>;
+  resolveDiscordEmployeeProfile?: (discordUserId: string) => Promise<EmployeeProfile>;
   searchKnowledge?: (input: SearchInput) => Promise<SearchEvidence[]>;
   createUpload?: (input: CreateUploadInput) => Promise<CreateUploadResult>;
+  ask?: (input: AskRequestInput) => Promise<AskRequestResult>;
+  createGoogleConnectUrl?: (input: GoogleConnectInput) => Promise<{ url: string }>;
+  completeGoogleOAuth?: (input: GoogleOAuthCallbackInput) => Promise<GoogleConnectionResult>;
+  getGoogleConnection?: (input: { employeeId: string }) => Promise<GoogleConnectionResult>;
+  revokeGoogleConnection?: (input: { employeeId: string }) => Promise<{ revoked: boolean }>;
+  prepareAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
+  confirmAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
+  executeAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
+  getAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
+  cancelAction?: (input: ActionRequestInput) => Promise<ActionRequestResult>;
+  listReminders?: (input: ReminderRequestInput) => Promise<ReminderRequestResult[]>;
+  createReminder?: (input: ReminderRequestInput) => Promise<ReminderRequestResult>;
+  completeReminder?: (input: ReminderRequestInput) => Promise<ReminderRequestResult>;
+  cancelReminder?: (input: ReminderRequestInput) => Promise<ReminderRequestResult>;
+  listMemory?: (input: MemoryRequestInput) => Promise<MemoryRequestResult[]>;
+  createMemory?: (input: MemoryRequestInput) => Promise<MemoryRequestResult>;
+  updateMemory?: (input: MemoryRequestInput) => Promise<MemoryRequestResult>;
+  deleteMemory?: (input: MemoryRequestInput) => Promise<MemoryRequestResult>;
   getReviewQueue?: (employeeId: string) => Promise<ReviewQueueProposal[]>;
   getSSOTDocument?: (employeeId: string, versionId: string) => Promise<SSOTDocument>;
+  createSSOTProposal?: (input: SSOTProposalInput) => Promise<SSOTProposalResult>;
   approveSSOTProposal?: (input: {
     proposalId: string;
     employeeId: string;
@@ -71,6 +259,44 @@ export interface ServerOptions {
   uploadMaxBytes?: number;
 }
 
+async function defaultCreateSSOTProposal(input: SSOTProposalInput): Promise<SSOTProposalResult> {
+  const decision = await evaluateCapability(input.employeeId, "SSOT_PROPOSE");
+  if (!decision.allowed) throw new Error("ssot_propose_denied");
+  const proposal = await createProposal({
+    proposedByEmployeeId: input.employeeId,
+    authorityDomain: input.authorityDomain,
+    title: input.title,
+    proposedContent: input.proposedContent,
+    sourceArtifactIds: input.sourceArtifactIds,
+  });
+  return { proposalId: proposal.id, status: proposal.status };
+}
+
+async function defaultReadinessCheck(): Promise<ReadinessResult> {
+  const dependencies: Record<string, string> = { database: "unknown", worker: "not_configured" };
+  try {
+    await db.$queryRaw`SELECT 1`;
+    dependencies.database = "ok";
+  } catch {
+    dependencies.database = "unavailable";
+  }
+
+  const heartbeatFile = process.env.WORKER_HEARTBEAT_FILE;
+  if (heartbeatFile) {
+    try {
+      const heartbeat = await stat(heartbeatFile);
+      dependencies.worker = Date.now() - heartbeat.mtimeMs <= 30_000 ? "ok" : "stale";
+    } catch {
+      dependencies.worker = "unavailable";
+    }
+  }
+
+  return {
+    ready: dependencies.database === "ok" && dependencies.worker === "ok",
+    dependencies,
+  };
+}
+
 function defaultResolveDiscordIdentity(discordUserId: string): Promise<ResolvedIdentity> {
   return resolveDiscordEmployee(discordUserId).then((employee: Employee) => ({
     id: employee.id,
@@ -78,6 +304,64 @@ function defaultResolveDiscordIdentity(discordUserId: string): Promise<ResolvedI
     displayName: employee.displayName,
     discordUserId,
   }));
+}
+
+function defaultResolveDiscordEmployeeProfile(discordUserId: string): Promise<EmployeeProfile> {
+  return resolveDiscordEmployeeProfile(discordUserId).then(({ profile }) => profile);
+}
+
+interface BuildMetadata {
+  gitCommit: string;
+  buildTime: string;
+  schemaVersion: string;
+}
+
+function loadBuildMetadata(): BuildMetadata {
+  try {
+    return JSON.parse(
+      readFileSync(new URL("./build-metadata.json", import.meta.url), "utf8"),
+    ) as BuildMetadata;
+  } catch {
+    return {
+      gitCommit: process.env.GIT_COMMIT ?? "unknown",
+      buildTime: process.env.BUILD_TIME ?? "unknown",
+      schemaVersion: process.env.SCHEMA_VERSION ?? "unknown",
+    };
+  }
+}
+
+function isIdentityQuestion(text: string): boolean {
+  return /\b(who am i|what(?:'s| is) my (?:name|employee id|employee code|company|role|team|manager|permissions?|capabilities?|linked identities?)|what company am i in|what(?:'s| is) my (?:project|projects)|my profile)\b/i.test(
+    text,
+  );
+}
+
+function renderIdentityAnswer(
+  identity: ResolvedIdentity,
+  profile: EmployeeProfile,
+  question: string,
+): string {
+  const lines = [
+    `Name: ${identity.displayName}`,
+    `Employee ID: ${identity.employeeCode}`,
+    `Canonical employee record ID: ${identity.id}`,
+    `Company: ${profile.company}`,
+  ];
+  if (profile.roles.length > 0) lines.push(`Role: ${profile.roles.join(", ")}`);
+  if (profile.teams.length > 0) lines.push(`Team: ${profile.teams.join(", ")}`);
+  if (profile.projects.length > 0) lines.push(`Projects: ${profile.projects.join(", ")}`);
+  if (profile.manager) lines.push(`Manager: ${profile.manager}`);
+  if (/\b(permission|capabilit)/i.test(question)) {
+    lines.push(
+      `Permissions/capabilities: ${profile.capabilities.length > 0 ? profile.capabilities.join(", ") : "None recorded"}`,
+    );
+  }
+  if (/\blinked identit/i.test(question)) {
+    lines.push(
+      `Linked identities: ${profile.linkedIdentities.length > 0 ? profile.linkedIdentities.map((linked) => `${linked.provider}:${linked.subjectId}`).join(", ") : "None recorded"}`,
+    );
+  }
+  return lines.join("\n");
 }
 
 /**
@@ -89,10 +373,32 @@ function defaultResolveDiscordIdentity(discordUserId: string): Promise<ResolvedI
  */
 export async function buildServer(opts: ServerOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger: opts.logger ?? false });
+  const readinessCheck = opts.readinessCheck ?? defaultReadinessCheck;
   const resolveIdentity = opts.resolveDiscordIdentity ?? defaultResolveDiscordIdentity;
+  const resolveEmployeeProfile =
+    opts.resolveDiscordEmployeeProfile ?? defaultResolveDiscordEmployeeProfile;
   const searchKnowledge = opts.searchKnowledge ?? searchVisibleKnowledge;
   const createUpload = opts.createUpload ?? defaultCreateUpload;
+  const ask = opts.ask ?? missingAskHandler();
+  const createGoogleConnectUrl = opts.createGoogleConnectUrl ?? defaultCreateGoogleConnectUrl;
+  const completeGoogleOAuth = opts.completeGoogleOAuth ?? defaultCompleteGoogleOAuth;
+  const getGoogleConnection = opts.getGoogleConnection ?? defaultGetGoogleConnection;
+  const revokeGoogleConnection = opts.revokeGoogleConnection ?? defaultRevokeGoogleConnection;
+  const prepareAction = opts.prepareAction ?? defaultPrepareAction;
+  const confirmAction = opts.confirmAction ?? defaultConfirmAction;
+  const executeAction = opts.executeAction ?? defaultExecuteAction;
+  const getAction = opts.getAction ?? defaultGetAction;
+  const cancelAction = opts.cancelAction ?? defaultCancelAction;
+  const listReminders = opts.listReminders ?? defaultListReminders;
+  const createReminderHandler = opts.createReminder ?? defaultCreateReminder;
+  const completeReminderHandler = opts.completeReminder ?? defaultCompleteReminder;
+  const cancelReminderHandler = opts.cancelReminder ?? defaultCancelReminder;
+  const listMemory = opts.listMemory ?? defaultListMemory;
+  const createMemory = opts.createMemory ?? defaultCreateMemory;
+  const updateMemory = opts.updateMemory ?? defaultUpdateMemory;
+  const deleteMemory = opts.deleteMemory ?? defaultDeleteMemory;
   const getReviewQueue = opts.getReviewQueue ?? getReviewQueueForEmployee;
+  const createSSOTProposal = opts.createSSOTProposal ?? defaultCreateSSOTProposal;
   const getSSOTDocument = opts.getSSOTDocument ?? getSSOTDocumentForEmployee;
   const approveSSOTProposal = opts.approveSSOTProposal ?? approveProposalAsReviewer;
   const rejectSSOTProposal = opts.rejectSSOTProposal ?? rejectProposalAsReviewer;
@@ -102,7 +408,8 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   // Internal auth guard for all /v1/* routes except /v1/health.
   app.addHook("onRequest", async (request, reply) => {
     const url = request.url.split("?")[0] ?? request.url;
-    if (!url.startsWith("/v1/") || url === "/v1/health") return;
+    if (!url.startsWith("/v1/") || url === "/v1/health" || url === "/v1/google/oauth/callback")
+      return;
 
     const auth = request.headers.authorization;
     if (!auth || !auth.startsWith("Bearer ")) {
@@ -115,8 +422,313 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
   });
 
   app.get("/health", async () => ({ status: "ok" }));
+  app.get("/version", async () => loadBuildMetadata());
+  app.get("/health/ready", async (_request, reply) => {
+    const result = await readinessCheck();
+    return reply.code(result.ready ? 200 : 503).send(result);
+  });
   app.get("/v1/health", async () => ({ status: "ok" }));
   app.get("/v1/echo", async () => ({ status: "ok", echo: true }));
+
+  app.post<{
+    Body: {
+      discordUserId?: string;
+      targetEmployeeCode?: string;
+      operation?: "GRANT_ROLE" | "REVOKE_ROLE" | "GRANT_AUTHORITY" | "REVOKE_AUTHORITY";
+      roleKey?: string;
+      authorityDomain?: string;
+      authorityPermission?: "REVIEW" | "APPROVE";
+    };
+  }>("/v1/admin/changes/prepare", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.discordUserId?.trim() || !body.targetEmployeeCode?.trim() || !body.operation) {
+      return reply.code(400).send({ error: "invalid_admin_change_request" });
+    }
+    try {
+      const requester = await resolveIdentity(body.discordUserId.trim());
+      const change = await prepareAdminChange({
+        requesterEmployeeId: requester.id,
+        targetEmployeeCode: body.targetEmployeeCode.trim(),
+        operation: body.operation,
+        roleKey: body.roleKey?.trim(),
+        authorityDomain: body.authorityDomain?.trim(),
+        authorityPermission: body.authorityPermission,
+      });
+      return reply.code(201).send({
+        requestId: change.id,
+        status: change.status,
+        operation: change.operation,
+        targetEmployeeId: change.targetEmployeeId,
+        roleKey: change.roleKey,
+        authorityDomain: change.authorityDomain,
+        authorityPermission: change.authorityPermission,
+      });
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "admin_change_denied" });
+    }
+  });
+
+  app.post<{
+    Params: { requestId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/changes/:requestId/confirm", async (request, reply) => {
+    const discordUserId = request.body?.discordUserId?.trim();
+    if (!discordUserId) return reply.code(400).send({ error: "invalid_admin_confirmation" });
+    try {
+      const requester = await resolveIdentity(discordUserId);
+      const change = await confirmAdminChange(request.params.requestId, requester.id);
+      return { requestId: change.id, status: change.status, confirmedAt: change.confirmedAt };
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "admin_confirmation_denied" });
+    }
+  });
+
+  app.post<{
+    Params: { requestId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/changes/:requestId/execute", async (request, reply) => {
+    const discordUserId = request.body?.discordUserId?.trim();
+    if (!discordUserId) return reply.code(400).send({ error: "invalid_admin_execution" });
+    try {
+      const requester = await resolveIdentity(discordUserId);
+      return await executeAdminChange(request.params.requestId, requester.id);
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "admin_execution_denied" });
+    }
+  });
+
+  app.post<{
+    Body: { discordUserId?: string; employeeCode?: string; targetDiscordUserId?: string };
+  }>("/v1/admin/identity-links/prepare", async (request, reply) => {
+    const body = request.body ?? {};
+    if (
+      !body.discordUserId?.trim() ||
+      !body.employeeCode?.trim() ||
+      !body.targetDiscordUserId?.trim()
+    ) {
+      return reply.code(400).send({ error: "invalid_identity_link_request" });
+    }
+    try {
+      const requester = await resolveIdentity(body.discordUserId.trim());
+      return reply.code(201).send(
+        await prepareEmployeeIdentityLink({
+          requesterEmployeeId: requester.id,
+          employeeCode: body.employeeCode,
+          discordUserId: body.targetDiscordUserId,
+        }),
+      );
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "identity_link_denied" });
+    }
+  });
+
+  app.post<{
+    Body: {
+      discordUserId?: string;
+      fullName?: string;
+      companyEmail?: string;
+      timezone?: string;
+      targetDiscordUserId?: string;
+      employeeCode?: string;
+      initialRoleKeys?: string[];
+      stagingAllowlisted?: boolean;
+    };
+  }>("/v1/admin/enrollments/prepare", async (request, reply) => {
+    const body = request.body ?? {};
+    if (
+      !body.discordUserId?.trim() ||
+      !body.fullName?.trim() ||
+      !body.companyEmail?.trim() ||
+      !body.timezone?.trim() ||
+      !body.targetDiscordUserId?.trim() ||
+      !body.employeeCode?.trim() ||
+      !body.initialRoleKeys?.length
+    ) {
+      return reply.code(400).send({ error: "invalid_enrollment_request" });
+    }
+    try {
+      const requester = await resolveIdentity(body.discordUserId.trim());
+      return reply.code(201).send(
+        await prepareEmployeeEnrollment({
+          requesterEmployeeId: requester.id,
+          fullName: body.fullName,
+          companyEmail: body.companyEmail,
+          timezone: body.timezone,
+          discordUserId: body.targetDiscordUserId,
+          employeeCode: body.employeeCode,
+          initialRoleKeys: body.initialRoleKeys,
+          stagingAllowlisted: body.stagingAllowlisted ?? false,
+        }),
+      );
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "enrollment_denied" });
+    }
+  });
+
+  app.post<{
+    Params: { enrollmentId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/enrollments/:enrollmentId/confirm", async (request, reply) => {
+    if (!request.body?.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_enrollment_confirmation" });
+    try {
+      const requester = await resolveIdentity(request.body.discordUserId.trim());
+      return await confirmEmployeeEnrollment(request.params.enrollmentId, requester.id);
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "enrollment_confirmation_denied" });
+    }
+  });
+
+  app.get<{
+    Params: { enrollmentId: string };
+    Querystring: { discordUserId?: string };
+  }>("/v1/admin/enrollments/:enrollmentId", async (request, reply) => {
+    if (!request.query.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_enrollment_status" });
+    try {
+      const requester = await resolveIdentity(request.query.discordUserId.trim());
+      return await getEmployeeEnrollment(request.params.enrollmentId, requester.id);
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "enrollment_status_denied" });
+    }
+  });
+
+  app.post<{
+    Params: { enrollmentId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/enrollments/:enrollmentId/cancel", async (request, reply) => {
+    if (!request.body?.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_enrollment_cancellation" });
+    try {
+      const requester = await resolveIdentity(request.body.discordUserId.trim());
+      return await cancelEmployeeEnrollment(request.params.enrollmentId, requester.id);
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "enrollment_cancellation_denied" });
+    }
+  });
+
+  app.post<{
+    Params: { enrollmentId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/enrollments/:enrollmentId/execute", async (request, reply) => {
+    if (!request.body?.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_enrollment_execution" });
+    try {
+      const requester = await resolveIdentity(request.body.discordUserId.trim());
+      return await executeEmployeeEnrollment(request.params.enrollmentId, requester.id);
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "enrollment_execution_denied" });
+    }
+  });
+
+  app.post<{
+    Body: { discordUserId?: string; targetEmployeeCode?: string; newDisplayName?: string };
+  }>("/v1/admin/profile-corrections/prepare", async (request, reply) => {
+    const body = request.body ?? {};
+    if (
+      !body.discordUserId?.trim() ||
+      !body.targetEmployeeCode?.trim() ||
+      !body.newDisplayName?.trim()
+    ) {
+      return reply.code(400).send({ error: "invalid_profile_correction_request" });
+    }
+    try {
+      const requester = await resolveIdentity(body.discordUserId.trim());
+      return reply.code(201).send(
+        await prepareProfileCorrection({
+          requesterEmployeeId: requester.id,
+          targetEmployeeCode: body.targetEmployeeCode,
+          newDisplayName: body.newDisplayName,
+        }),
+      );
+    } catch (error) {
+      return reply
+        .code(403)
+        .send({ error: error instanceof Error ? error.message : "profile_correction_denied" });
+    }
+  });
+
+  app.post<{
+    Params: { correctionId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/profile-corrections/:correctionId/confirm", async (request, reply) => {
+    if (!request.body?.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_profile_correction_confirmation" });
+    try {
+      const requester = await resolveIdentity(request.body.discordUserId.trim());
+      return await confirmProfileCorrection(request.params.correctionId, requester.id);
+    } catch (error) {
+      return reply.code(403).send({
+        error: error instanceof Error ? error.message : "profile_correction_confirmation_denied",
+      });
+    }
+  });
+
+  app.get<{
+    Params: { correctionId: string };
+    Querystring: { discordUserId?: string };
+  }>("/v1/admin/profile-corrections/:correctionId", async (request, reply) => {
+    if (!request.query.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_profile_correction_status" });
+    try {
+      const requester = await resolveIdentity(request.query.discordUserId.trim());
+      return await getProfileCorrection(request.params.correctionId, requester.id);
+    } catch (error) {
+      return reply.code(403).send({
+        error: error instanceof Error ? error.message : "profile_correction_status_denied",
+      });
+    }
+  });
+
+  app.post<{
+    Params: { correctionId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/profile-corrections/:correctionId/cancel", async (request, reply) => {
+    if (!request.body?.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_profile_correction_cancellation" });
+    try {
+      const requester = await resolveIdentity(request.body.discordUserId.trim());
+      return await cancelProfileCorrection(request.params.correctionId, requester.id);
+    } catch (error) {
+      return reply.code(403).send({
+        error: error instanceof Error ? error.message : "profile_correction_cancellation_denied",
+      });
+    }
+  });
+
+  app.post<{
+    Params: { correctionId: string };
+    Body: { discordUserId?: string };
+  }>("/v1/admin/profile-corrections/:correctionId/execute", async (request, reply) => {
+    if (!request.body?.discordUserId?.trim())
+      return reply.code(400).send({ error: "invalid_profile_correction_execution" });
+    try {
+      const requester = await resolveIdentity(request.body.discordUserId.trim());
+      return await executeProfileCorrection(request.params.correctionId, requester.id);
+    } catch (error) {
+      return reply.code(403).send({
+        error: error instanceof Error ? error.message : "profile_correction_execution_denied",
+      });
+    }
+  });
 
   app.post<{ Body: { provider?: string; subjectId?: string } }>(
     "/v1/identity/resolve",
@@ -129,12 +741,20 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
 
       try {
         const identity = await resolveIdentity(subjectId);
+        const profile = identity.profile ?? (await resolveEmployeeProfile(subjectId));
         return {
           employeeId: identity.id,
           employeeCode: identity.employeeCode,
           displayName: identity.displayName,
           provider: "DISCORD",
           subjectId: identity.discordUserId,
+          profile: {
+            company: profile.company,
+            roles: profile.roles,
+            teams: profile.teams,
+            projects: profile.projects,
+            manager: profile.manager,
+          },
         };
       } catch (error) {
         if (error instanceof IdentityDeniedError) {
@@ -171,6 +791,171 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       }
       request.log.error(error);
       return reply.code(500).send({ error: "search_failed" });
+    }
+  });
+
+  app.post<{
+    Body: {
+      discordUserId?: string;
+      conversationId?: string;
+      messageId?: string;
+      text?: string;
+    };
+  }>("/v1/ask", async (request, reply) => {
+    const body = request.body ?? {};
+    if (
+      !body.discordUserId?.trim() ||
+      !body.conversationId ||
+      !body.messageId ||
+      !body.text?.trim()
+    ) {
+      return reply.code(400).send({ error: "invalid_ask_request" });
+    }
+    try {
+      const identity = await resolveIdentity(body.discordUserId.trim());
+      if (isIdentityQuestion(body.text)) {
+        const profile =
+          identity.profile ?? (await resolveEmployeeProfile(body.discordUserId.trim()));
+        return {
+          status: "SUPPORTED",
+          text: renderIdentityAnswer(identity, profile, body.text),
+          citations: [],
+          limitations: [],
+          conflictChunkIds: [],
+        };
+      }
+      return await ask({
+        employeeId: identity.id,
+        employeeName: identity.displayName,
+        conversationId: body.conversationId,
+        messageId: body.messageId,
+        text: body.text,
+      });
+    } catch (error) {
+      if (error instanceof IdentityDeniedError) {
+        if (error.reason === "IDENTITY_NOT_FOUND" && isIdentityQuestion(body.text)) {
+          return reply.code(403).send({
+            error: "identity_not_linked",
+            message: "Your Discord account is not currently linked to a REELIST8 employee record.",
+          });
+        }
+        return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+      }
+      if (error instanceof Error && error.message === "ask_not_configured") {
+        return reply.code(503).send({ error: error.message });
+      }
+      request.log.error(error);
+      return reply.code(500).send({ error: "ask_failed" });
+    }
+  });
+
+  app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
+    "/v1/google/oauth/callback",
+    async (request, reply) => {
+      const { code, state, error } = request.query;
+      if (error)
+        return reply.code(400).send({ error: "google_authorization_denied", providerError: error });
+      if (!code?.trim() || !state?.trim()) {
+        return reply.code(400).send({ error: "invalid_google_callback_request" });
+      }
+      try {
+        return await completeGoogleOAuth({ code: code.trim(), state: state.trim() });
+      } catch (callbackError) {
+        return handleGoogleError(request, reply, callbackError);
+      }
+    },
+  );
+
+  app.post<{
+    Body: { discordUserId?: string; capabilities?: string[] };
+  }>("/v1/google/connect-url", async (request, reply) => {
+    const body = request.body ?? {};
+    if (
+      !body.discordUserId?.trim() ||
+      !Array.isArray(body.capabilities) ||
+      body.capabilities.length === 0
+    ) {
+      return reply.code(400).send({ error: "invalid_google_connect_request" });
+    }
+    try {
+      const identity = await resolveIdentity(body.discordUserId.trim());
+      return await createGoogleConnectUrl({
+        employeeId: identity.id,
+        capabilities: body.capabilities,
+      });
+    } catch (error) {
+      return handleGoogleError(request, reply, error);
+    }
+  });
+
+  app.get<{ Querystring: { discordUserId?: string } }>(
+    "/v1/google/connection",
+    async (request, reply) => {
+      const discordUserId = request.query.discordUserId?.trim();
+      if (!discordUserId)
+        return reply.code(400).send({ error: "invalid_google_connection_request" });
+      try {
+        const identity = await resolveIdentity(discordUserId);
+        return await getGoogleConnection({ employeeId: identity.id });
+      } catch (error) {
+        return handleGoogleError(request, reply, error);
+      }
+    },
+  );
+
+  app.delete<{ Body: { discordUserId?: string } }>(
+    "/v1/google/connection",
+    async (request, reply) => {
+      const discordUserId = request.body?.discordUserId?.trim();
+      if (!discordUserId)
+        return reply.code(400).send({ error: "invalid_google_connection_request" });
+      try {
+        const identity = await resolveIdentity(discordUserId);
+        return await revokeGoogleConnection({ employeeId: identity.id });
+      } catch (error) {
+        return handleGoogleError(request, reply, error);
+      }
+    },
+  );
+
+  app.post<{
+    Body: {
+      discordUserId?: string;
+      authorityDomain?: string;
+      title?: string;
+      proposedContent?: string;
+      sourceArtifactIds?: string[];
+    };
+  }>("/v1/ssot/proposals", async (request, reply) => {
+    const body = request.body ?? {};
+    if (
+      !body.discordUserId?.trim() ||
+      !body.authorityDomain?.trim() ||
+      !body.title?.trim() ||
+      !body.proposedContent?.trim()
+    ) {
+      return reply.code(400).send({ error: "invalid_ssot_proposal_request" });
+    }
+    try {
+      const identity = await resolveIdentity(body.discordUserId.trim());
+      return reply.code(201).send(
+        await createSSOTProposal({
+          employeeId: identity.id,
+          authorityDomain: body.authorityDomain,
+          title: body.title,
+          proposedContent: body.proposedContent,
+          sourceArtifactIds: body.sourceArtifactIds,
+        }),
+      );
+    } catch (error) {
+      if (error instanceof IdentityDeniedError)
+        return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+      if (error instanceof Error && error.message === "ssot_propose_denied")
+        return reply.code(403).send({ error: error.message });
+      if (error instanceof Error && error.message.startsWith("ssot_authority_domain_not_found:"))
+        return reply.code(400).send({ error: error.message });
+      request.log.error(error);
+      return reply.code(500).send({ error: "ssot_proposal_failed" });
     }
   });
 
@@ -324,15 +1109,806 @@ export async function buildServer(opts: ServerOptions): Promise<FastifyInstance>
       if (error instanceof Error && error.message === "ssot_review_requires_authority_domain") {
         return reply.code(400).send({ error: "ssot_review_requires_authority_domain" });
       }
-      if (error instanceof Error && error.message === "upload_storage_not_configured") {
-        return reply.code(503).send({ error: "upload_storage_not_configured" });
+      if (
+        error instanceof Error &&
+        ["upload_storage_not_configured", "ingestion_queue_not_configured"].includes(error.message)
+      ) {
+        return reply.code(503).send({ error: error.message });
       }
       request.log.error(error);
       return reply.code(500).send({ error: "upload_failed" });
     }
   });
 
+  app.get<{
+    Params: { versionId: string };
+    Querystring: { discordUserId?: string };
+  }>("/v1/uploads/:versionId", async (request, reply) => {
+    const discordUserId = request.query.discordUserId?.trim();
+    if (!discordUserId || !request.params.versionId) {
+      return reply.code(400).send({ error: "invalid_upload_status_request" });
+    }
+    try {
+      const identity = await resolveIdentity(discordUserId);
+      const version = await db.artifactVersion.findUnique({
+        where: { id: request.params.versionId },
+        include: { artifact: { include: { submissions: true } } },
+      });
+      const submissions = version?.artifact.submissions as unknown as Array<{
+        submittedByEmployeeId: string;
+        ownerEmployeeId: string | null;
+      }>;
+      const visible = submissions?.some(
+        (submission) =>
+          submission.submittedByEmployeeId === identity.id ||
+          submission.ownerEmployeeId === identity.id,
+      );
+      if (!version || !visible) return reply.code(404).send({ error: "upload_not_found" });
+      return {
+        artifactId: version.artifactId,
+        versionId: version.id,
+        filename: version.artifact.originalFilename,
+        extractionStatus: version.extractionStatus,
+        extractionError: version.extractionError,
+        extractedAt: version.extractedAt,
+        extractionMetadata: version.extractionMetadata,
+      };
+    } catch (error) {
+      if (error instanceof IdentityDeniedError) {
+        return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+      }
+      request.log.error(error);
+      return reply.code(500).send({ error: "upload_status_failed" });
+    }
+  });
+
+  app.post<{
+    Body: {
+      discordUserId?: string;
+      actionType?: string;
+      parameters?: Record<string, unknown>;
+      conversationId?: string;
+      idempotencyKey?: string;
+    };
+  }>("/v1/actions/prepare", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.actionType || !body.parameters || !body.idempotencyKey) {
+      return reply.code(400).send({ error: "invalid_action_prepare_request" });
+    }
+    return runActionRequest(
+      request,
+      reply,
+      resolveIdentity,
+      prepareAction,
+      {
+        actionType: body.actionType,
+        parameters: body.parameters,
+        conversationId: body.conversationId,
+        idempotencyKey: body.idempotencyKey,
+      },
+      201,
+    );
+  });
+
+  app.post<{ Params: { actionId: string }; Body: { discordUserId?: string } }>(
+    "/v1/actions/:actionId/confirm",
+    async (request, reply) =>
+      runActionRequest(request, reply, resolveIdentity, confirmAction, {
+        actionId: request.params.actionId,
+      }),
+  );
+
+  app.post<{ Params: { actionId: string }; Body: { discordUserId?: string } }>(
+    "/v1/actions/:actionId/execute",
+    async (request, reply) =>
+      runActionRequest(request, reply, resolveIdentity, executeAction, {
+        actionId: request.params.actionId,
+      }),
+  );
+
+  app.post<{ Params: { actionId: string }; Body: { discordUserId?: string } }>(
+    "/v1/actions/:actionId/cancel",
+    async (request, reply) =>
+      runActionRequest(request, reply, resolveIdentity, cancelAction, {
+        actionId: request.params.actionId,
+      }),
+  );
+
+  app.get<{ Params: { actionId: string }; Querystring: { discordUserId?: string } }>(
+    "/v1/actions/:actionId",
+    async (request, reply) =>
+      runActionRequest(request, reply, resolveIdentity, getAction, {
+        actionId: request.params.actionId,
+      }),
+  );
+
+  app.get<{ Querystring: { discordUserId?: string } }>("/v1/reminders", async (request, reply) => {
+    const discordUserId = request.query.discordUserId?.trim();
+    if (!discordUserId) return reply.code(400).send({ error: "invalid_reminder_request" });
+    try {
+      const identity = await resolveIdentity(discordUserId);
+      return {
+        employeeId: identity.id,
+        reminders: await listReminders({ employeeId: identity.id }),
+      };
+    } catch (error) {
+      return handleReminderError(request, reply, error);
+    }
+  });
+
+  app.post<{
+    Body: {
+      discordUserId?: string;
+      text?: string;
+      dueAt?: string;
+      timezone?: string;
+      conversationId?: string;
+    };
+  }>("/v1/reminders", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.discordUserId?.trim() || !body.text?.trim() || !body.dueAt || !body.timezone) {
+      return reply.code(400).send({ error: "invalid_reminder_request" });
+    }
+    try {
+      const identity = await resolveIdentity(body.discordUserId.trim());
+      return reply.code(201).send(
+        await createReminderHandler({
+          employeeId: identity.id,
+          text: body.text,
+          dueAt: body.dueAt,
+          timezone: body.timezone,
+        }),
+      );
+    } catch (error) {
+      return handleReminderError(request, reply, error);
+    }
+  });
+
+  app.post<{ Params: { reminderId: string }; Body: { discordUserId?: string } }>(
+    "/v1/reminders/:reminderId/complete",
+    async (request, reply) =>
+      runReminderMutation(request, reply, resolveIdentity, completeReminderHandler),
+  );
+
+  app.post<{ Params: { reminderId: string }; Body: { discordUserId?: string } }>(
+    "/v1/reminders/:reminderId/cancel",
+    async (request, reply) =>
+      runReminderMutation(request, reply, resolveIdentity, cancelReminderHandler),
+  );
+
+  app.get<{ Querystring: { discordUserId?: string } }>("/v1/memory", async (request, reply) => {
+    const discordUserId = request.query.discordUserId?.trim();
+    if (!discordUserId) return reply.code(400).send({ error: "invalid_memory_request" });
+    try {
+      const identity = await resolveIdentity(discordUserId);
+      return { employeeId: identity.id, memories: await listMemory({ employeeId: identity.id }) };
+    } catch (error) {
+      return handleMemoryError(request, reply, error);
+    }
+  });
+
+  app.post<{
+    Body: { discordUserId?: string; type?: string; content?: string; sensitivity?: string };
+  }>("/v1/memory", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.discordUserId?.trim() || !body.type || !body.content?.trim()) {
+      return reply.code(400).send({ error: "invalid_memory_request" });
+    }
+    try {
+      const identity = await resolveIdentity(body.discordUserId.trim());
+      return reply.code(201).send(
+        await createMemory({
+          employeeId: identity.id,
+          type: body.type,
+          content: body.content,
+          sensitivity: body.sensitivity,
+        }),
+      );
+    } catch (error) {
+      return handleMemoryError(request, reply, error);
+    }
+  });
+
+  app.patch<{
+    Params: { memoryId: string };
+    Body: { discordUserId?: string; content?: string; sensitivity?: string; status?: string };
+  }>("/v1/memory/:memoryId", async (request, reply) => {
+    const body = request.body ?? {};
+    if (!body.discordUserId?.trim() || !request.params.memoryId) {
+      return reply.code(400).send({ error: "invalid_memory_request" });
+    }
+    if (!body.content && !body.sensitivity && !body.status) {
+      return reply.code(400).send({ error: "memory_update_requires_change" });
+    }
+    try {
+      const identity = await resolveIdentity(body.discordUserId.trim());
+      return await updateMemory({
+        employeeId: identity.id,
+        memoryId: request.params.memoryId,
+        content: body.content,
+        sensitivity: body.sensitivity,
+        status: body.status,
+      });
+    } catch (error) {
+      return handleMemoryError(request, reply, error);
+    }
+  });
+
+  app.delete<{ Params: { memoryId: string }; Body: { discordUserId?: string } }>(
+    "/v1/memory/:memoryId",
+    async (request, reply) => {
+      const discordUserId = request.body?.discordUserId?.trim();
+      if (!discordUserId || !request.params.memoryId) {
+        return reply.code(400).send({ error: "invalid_memory_request" });
+      }
+      try {
+        const identity = await resolveIdentity(discordUserId);
+        return await deleteMemory({ employeeId: identity.id, memoryId: request.params.memoryId });
+      } catch (error) {
+        return handleMemoryError(request, reply, error);
+      }
+    },
+  );
+
   return app;
+}
+
+async function defaultListReminders(input: ReminderRequestInput): Promise<ReminderRequestResult[]> {
+  return (await getRemindersForEmployee(input.employeeId)).map(toReminderResult);
+}
+
+async function defaultCreateReminder(input: ReminderRequestInput): Promise<ReminderRequestResult> {
+  await authorizeActionType(input.employeeId, "REMINDER_CREATE");
+  if (!input.text || !input.dueAt || !input.timezone) throw new Error("reminder_create_invalid");
+  return toReminderResult(
+    await createReminder({
+      employeeId: input.employeeId,
+      text: input.text,
+      dueAt: new Date(input.dueAt),
+      timezone: input.timezone,
+    }),
+  );
+}
+
+async function requireOwnedReminder(employeeId: string, reminderId: string): Promise<void> {
+  const reminders = await getRemindersForEmployee(employeeId);
+  if (!reminders.some((reminder) => reminder.id === reminderId))
+    throw new Error("reminder_not_found");
+}
+
+async function defaultCompleteReminder(
+  input: ReminderRequestInput,
+): Promise<ReminderRequestResult> {
+  await authorizeActionType(input.employeeId, "REMINDER_COMPLETE");
+  if (!input.reminderId) throw new Error("reminder_complete_invalid");
+  await requireOwnedReminder(input.employeeId, input.reminderId);
+  return toReminderResult(await completeReminder(input.reminderId));
+}
+
+async function defaultCancelReminder(input: ReminderRequestInput): Promise<ReminderRequestResult> {
+  await authorizeActionType(input.employeeId, "REMINDER_DELETE");
+  if (!input.reminderId) throw new Error("reminder_cancel_invalid");
+  await requireOwnedReminder(input.employeeId, input.reminderId);
+  return toReminderResult(await cancelReminder(input.reminderId));
+}
+
+function toReminderResult(reminder: {
+  id: string;
+  employeeId: string;
+  text: string;
+  dueAt: Date;
+  timezone: string;
+  status: string;
+}): ReminderRequestResult {
+  return {
+    id: reminder.id,
+    employeeId: reminder.employeeId,
+    text: reminder.text,
+    dueAt: reminder.dueAt,
+    timezone: reminder.timezone,
+    status: reminder.status,
+  };
+}
+
+function handleReminderError(
+  request: { log: { error(error: unknown): void } },
+  reply: { code(statusCode: number): { send(payload: unknown): unknown } },
+  error: unknown,
+): unknown {
+  if (error instanceof IdentityDeniedError)
+    return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+  if (
+    error instanceof Error &&
+    ["action_capability_denied", "action_feature_disabled", "action_kill_switch_active"].includes(
+      error.message,
+    )
+  )
+    return reply.code(403).send({ error: error.message });
+  if (error instanceof Error && error.message.endsWith("_not_found"))
+    return reply.code(404).send({ error: error.message });
+  request.log.error(error);
+  return reply.code(500).send({ error: "reminder_request_failed" });
+}
+
+async function runReminderMutation(
+  request: {
+    body?: { discordUserId?: string };
+    params: { reminderId: string };
+    log: { error(error: unknown): void };
+  },
+  reply: {
+    code(statusCode: number): { send(payload: unknown): unknown };
+    send(payload: unknown): unknown;
+  },
+  resolveIdentity: (discordUserId: string) => Promise<ResolvedIdentity>,
+  mutation: (input: ReminderRequestInput) => Promise<ReminderRequestResult>,
+): Promise<unknown> {
+  const discordUserId = request.body?.discordUserId?.trim();
+  if (!discordUserId || !request.params.reminderId)
+    return reply.code(400).send({ error: "invalid_reminder_request" });
+  try {
+    const identity = await resolveIdentity(discordUserId);
+    return reply.send(
+      await mutation({ employeeId: identity.id, reminderId: request.params.reminderId }),
+    );
+  } catch (error) {
+    return handleReminderError(request, reply, error);
+  }
+}
+
+async function defaultListMemory(input: MemoryRequestInput): Promise<MemoryRequestResult[]> {
+  const memories = await getMemories(input.employeeId);
+  return memories.map((memory) => ({
+    id: memory.id,
+    employeeId: memory.employeeId,
+    type: memory.type,
+    content: memory.content,
+    sensitivity: memory.sensitivity,
+    status: memory.status,
+  }));
+}
+
+async function defaultCreateMemory(input: MemoryRequestInput): Promise<MemoryRequestResult> {
+  if (!input.type || !input.content) throw new Error("memory_create_invalid");
+  const memory = await addMemory({
+    employeeId: input.employeeId,
+    type: input.type as MemoryType,
+    content: input.content,
+    sensitivity: input.sensitivity as MemorySensitivity | undefined,
+  });
+  return {
+    id: memory.id,
+    employeeId: memory.employeeId,
+    type: memory.type,
+    content: memory.content,
+    sensitivity: memory.sensitivity,
+    status: memory.status,
+  };
+}
+
+async function requireOwnedMemory(employeeId: string, memoryId: string) {
+  const memory = (await getMemories(employeeId)).find((candidate) => candidate.id === memoryId);
+  if (!memory) throw new Error("memory_not_found");
+  return memory;
+}
+
+async function defaultUpdateMemory(input: MemoryRequestInput): Promise<MemoryRequestResult> {
+  if (!input.memoryId) throw new Error("memory_update_invalid");
+  await requireOwnedMemory(input.employeeId, input.memoryId);
+  const memory = await updatePersonalMemory(input.memoryId, {
+    content: input.content,
+    sensitivity: input.sensitivity as MemorySensitivity | undefined,
+    status: input.status as MemoryStatus | undefined,
+  });
+  return {
+    id: memory.id,
+    employeeId: memory.employeeId,
+    type: memory.type,
+    content: memory.content,
+    sensitivity: memory.sensitivity,
+    status: memory.status,
+  };
+}
+
+async function defaultDeleteMemory(input: MemoryRequestInput): Promise<MemoryRequestResult> {
+  if (!input.memoryId) throw new Error("memory_delete_invalid");
+  await requireOwnedMemory(input.employeeId, input.memoryId);
+  await deletePersonalMemory(input.memoryId);
+  return { id: input.memoryId, employeeId: input.employeeId, status: "DELETED" };
+}
+
+function handleMemoryError(
+  request: { log: { error(error: unknown): void } },
+  reply: { code(statusCode: number): { send(payload: unknown): unknown } },
+  error: unknown,
+): unknown {
+  if (error instanceof IdentityDeniedError) {
+    return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+  }
+  if (error instanceof Error && error.message.endsWith("_not_configured")) {
+    return reply.code(503).send({ error: error.message });
+  }
+  request.log.error(error);
+  return reply.code(500).send({ error: "memory_request_failed" });
+}
+
+interface ActionRequest {
+  body?: unknown;
+  query?: unknown;
+  params?: unknown;
+  log: { error(error: unknown): void };
+}
+
+interface ActionReply {
+  send(payload: unknown): unknown;
+  code(statusCode: number): { send(payload: unknown): unknown };
+}
+
+function missingAskHandler() {
+  return async (): Promise<AskRequestResult> => {
+    throw new Error("ask_not_configured");
+  };
+}
+
+async function defaultPrepareAction(input: ActionRequestInput): Promise<ActionRequestResult> {
+  if (!input.actionType || !input.parameters || !input.idempotencyKey) {
+    throw new Error("action_prepare_invalid");
+  }
+  await authorizeActionType(input.employeeId, input.actionType);
+  const proposal = parseActionProposal({
+    actionType: input.actionType,
+    parameters: input.parameters,
+  });
+  const validation = validateProposal(proposal);
+  if (!validation.valid) throw new Error(`action_invalid: ${validation.errors.join("; ")}`);
+  const providers = await googleExecutors(input.employeeId);
+
+  switch (proposal.actionType) {
+    case "GMAIL_CREATE_DRAFT":
+      return toActionResult(
+        await providers.gmail.createDraftAction({
+          employeeId: input.employeeId,
+          conversationId: input.conversationId,
+          idempotencyKey: input.idempotencyKey,
+          to: String(proposal.parameters.to),
+          subject: String(proposal.parameters.subject),
+          body: String(proposal.parameters.body),
+        }),
+      );
+    case "GMAIL_SEND_DRAFT":
+      return toActionResult(
+        await providers.gmail.sendDraftAction({
+          employeeId: input.employeeId,
+          conversationId: input.conversationId,
+          draftActionId: String(proposal.parameters.draftId),
+          idempotencyKey: input.idempotencyKey,
+        }),
+      );
+    case "CALENDAR_FREEBUSY":
+      return {
+        id: "",
+        status: (
+          await providers.calendar.queryFreeBusy({
+            employeeId: input.employeeId,
+            idempotencyKey: input.idempotencyKey,
+            start: String(proposal.parameters.start),
+            end: String(proposal.parameters.end),
+          })
+        ).status,
+        parameters: proposal.parameters,
+      };
+    case "CALENDAR_CREATE_PERSONAL_EVENT":
+      return toActionResult(
+        await providers.calendar.createPersonalEventAction({
+          employeeId: input.employeeId,
+          conversationId: input.conversationId,
+          idempotencyKey: input.idempotencyKey,
+          summary: String(proposal.parameters.summary),
+          start: String(proposal.parameters.start),
+          end: String(proposal.parameters.end),
+        }),
+      );
+    case "CALENDAR_CREATE_MEETING":
+      return toActionResult(
+        await providers.calendar.createMeetingAction({
+          employeeId: input.employeeId,
+          conversationId: input.conversationId,
+          idempotencyKey: input.idempotencyKey,
+          summary: String(proposal.parameters.summary),
+          start: String(proposal.parameters.start),
+          end: String(proposal.parameters.end),
+          attendees: proposal.parameters.attendees as string[],
+        }),
+      );
+    default:
+      throw new Error(`action_type_not_supported: ${proposal.actionType}`);
+  }
+}
+
+async function defaultConfirmAction(input: ActionRequestInput): Promise<ActionRequestResult> {
+  if (!input.actionId) throw new Error("action_confirm_invalid");
+  const action = await getStoredAction(input.actionId);
+  if (!action || action.employeeId !== input.employeeId) throw new Error("action_not_found");
+  await authorizeActionType(input.employeeId, action.type);
+  if (action.status !== "AWAITING_CONFIRMATION")
+    throw new Error("action_confirmation_not_required");
+  const confirmedParametersHash = createHash("sha256")
+    .update(JSON.stringify(action.parametersJson))
+    .digest("hex");
+  await db.actionConfirmation.create({
+    data: { actionId: action.id, employeeId: input.employeeId, confirmedParametersHash },
+  });
+  return toActionResult(await transitionAction(action.id, "EXECUTING"));
+}
+
+async function defaultExecuteAction(input: ActionRequestInput): Promise<ActionRequestResult> {
+  if (!input.actionId) throw new Error("action_execute_invalid");
+  const action = await getStoredAction(input.actionId);
+  if (!action || action.employeeId !== input.employeeId) throw new Error("action_not_found");
+  await authorizeActionType(input.employeeId, action.type);
+  const providers = await googleExecutors(input.employeeId);
+  switch (action.type) {
+    case "GMAIL_SEND_DRAFT":
+      return toActionResult(await providers.gmail.executeSend(action.id));
+    case "CALENDAR_CREATE_MEETING":
+      return toActionResult(await providers.calendar.executeCreateMeeting(action.id));
+    default:
+      throw new Error(`action_execute_not_supported: ${action.type}`);
+  }
+}
+
+async function defaultGetAction(input: ActionRequestInput): Promise<ActionRequestResult> {
+  if (!input.actionId) throw new Error("action_get_invalid");
+  const action = await getStoredAction(input.actionId);
+  if (!action || action.employeeId !== input.employeeId) throw new Error("action_not_found");
+  return toActionResult(action);
+}
+
+async function defaultCancelAction(input: ActionRequestInput): Promise<ActionRequestResult> {
+  if (!input.actionId) throw new Error("action_cancel_invalid");
+  const action = await getStoredAction(input.actionId);
+  if (!action || action.employeeId !== input.employeeId) throw new Error("action_not_found");
+  return toActionResult(await transitionAction(action.id, "CANCELLED"));
+}
+
+async function googleExecutors(employeeId: string): Promise<{
+  gmail: GmailActionExecutor;
+  calendar: CalendarActionExecutor;
+}> {
+  const { loadConfig } = await import("@hermes/config");
+  const cfg = loadConfig(process.env);
+  if (!cfg.googleClientId || !cfg.googleClientSecret || !cfg.tokenEncryptionKey) {
+    throw new Error("google_oauth_not_configured");
+  }
+  const tokenSource = new GoogleOAuthAccessTokenSource(
+    cfg.googleClientId,
+    cfg.googleClientSecret,
+    cfg.tokenEncryptionKey,
+  );
+  return {
+    gmail: new GmailActionExecutor(new GoogleGmailProvider(employeeId, tokenSource)),
+    calendar: new CalendarActionExecutor(new GoogleCalendarProvider(employeeId, tokenSource)),
+  };
+}
+
+function toActionResult(action: {
+  id: string;
+  employeeId: string;
+  status: string;
+  type?: string;
+  parametersJson?: unknown;
+  confirmationRequired?: boolean;
+  externalResourceId?: string | null;
+}): ActionRequestResult {
+  return {
+    id: action.id,
+    employeeId: action.employeeId,
+    status: action.status,
+    type: action.type,
+    parameters: action.parametersJson,
+    confirmationRequired: action.confirmationRequired,
+    externalResourceId: action.externalResourceId,
+  };
+}
+
+async function defaultCreateGoogleConnectUrl(input: GoogleConnectInput): Promise<{ url: string }> {
+  const { loadConfig } = await import("@hermes/config");
+  const cfg = loadConfig(process.env);
+  if (!cfg.googleClientId || !cfg.googleRedirectUri) {
+    throw new Error("google_oauth_not_configured");
+  }
+
+  const scopes = scopesForCapabilities(input.capabilities);
+  const state = await createOAuthState({
+    employeeId: input.employeeId,
+    requestedScopes: scopes,
+    redirectTarget: "/",
+    key: cfg.tokenEncryptionKey ?? "",
+  });
+  return {
+    url: buildGoogleAuthorizationUrl({
+      clientId: cfg.googleClientId,
+      redirectUri: cfg.googleRedirectUri,
+      state: state.state,
+      scopes,
+      hostedDomain: cfg.stagingGoogleHostedDomain,
+    }),
+  };
+}
+
+async function defaultGetGoogleConnection(input: {
+  employeeId: string;
+}): Promise<GoogleConnectionResult> {
+  const connection = await getActiveConnection(input.employeeId);
+  if (!connection) return { connected: false };
+  return {
+    connected: true,
+    providerEmail: connection.providerEmail,
+    scopes: connection.grantedScopes,
+    status: connection.status,
+    lastVerifiedAt: connection.lastVerifiedAt,
+  };
+}
+
+async function defaultRevokeGoogleConnection(input: {
+  employeeId: string;
+}): Promise<{ revoked: boolean }> {
+  await revokeConnection(input.employeeId);
+  return { revoked: true };
+}
+
+function scopesForCapabilities(capabilities: string[]): string[] {
+  const scopes = new Set<string>(["openid", "email"]);
+  for (const capability of capabilities) {
+    switch (capability) {
+      case "GMAIL_DRAFT":
+      case "GMAIL_SEND":
+        scopes.add("https://www.googleapis.com/auth/gmail.compose");
+        break;
+      case "CALENDAR_FREEBUSY":
+        scopes.add("https://www.googleapis.com/auth/calendar.freebusy");
+        break;
+      case "CALENDAR_CREATE_PERSONAL_EVENT":
+      case "CALENDAR_INVITE_OTHERS":
+      case "CALENDAR_UPDATE_EVENT":
+      case "CALENDAR_CANCEL_EVENT":
+        scopes.add("https://www.googleapis.com/auth/calendar.events");
+        break;
+      case "DRIVE_FILE":
+        scopes.add("https://www.googleapis.com/auth/drive.file");
+        break;
+      default:
+        throw new Error(`unsupported_google_capability: ${capability}`);
+    }
+  }
+  return [...scopes];
+}
+
+async function defaultCompleteGoogleOAuth(
+  input: GoogleOAuthCallbackInput,
+): Promise<GoogleConnectionResult> {
+  const { loadConfig } = await import("@hermes/config");
+  const cfg = loadConfig(process.env);
+  if (
+    !cfg.googleClientId ||
+    !cfg.googleClientSecret ||
+    !cfg.googleRedirectUri ||
+    !cfg.tokenEncryptionKey
+  ) {
+    throw new Error("google_oauth_not_configured");
+  }
+
+  const state = await consumeOAuthState(input.state, cfg.tokenEncryptionKey);
+  if (!state) throw new Error("google_oauth_state_invalid");
+
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code: input.code,
+      client_id: cfg.googleClientId,
+      client_secret: cfg.googleClientSecret,
+      redirect_uri: cfg.googleRedirectUri,
+      grant_type: "authorization_code",
+    }),
+  });
+  if (!tokenResponse.ok) throw new Error("google_token_exchange_failed");
+  const tokenPayload = (await tokenResponse.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    scope?: string;
+  };
+  if (!tokenPayload.access_token || !tokenPayload.refresh_token) {
+    throw new Error("google_refresh_token_missing");
+  }
+
+  const userinfoResponse = await fetch("https://openidconnect.googleapis.com/v1/userinfo", {
+    headers: { Authorization: `Bearer ${tokenPayload.access_token}` },
+  });
+  if (!userinfoResponse.ok) throw new Error("google_identity_verification_failed");
+  const userinfo = (await userinfoResponse.json()) as {
+    sub?: string;
+    email?: string;
+    hd?: string;
+  };
+  if (!userinfo.sub) throw new Error("google_subject_missing");
+  if (cfg.stagingGoogleHostedDomain && userinfo.hd !== cfg.stagingGoogleHostedDomain) {
+    throw new Error("google_hosted_domain_denied");
+  }
+
+  const grantedScopes = tokenPayload.scope?.split(" ").filter(Boolean) ?? state.requestedScopes;
+  const connection = await saveConnection({
+    employeeId: state.employeeId,
+    providerAccountId: userinfo.sub,
+    providerEmail: userinfo.email,
+    hostedDomain: userinfo.hd,
+    encryptedRefreshToken: encryptToken(tokenPayload.refresh_token, cfg.tokenEncryptionKey),
+    accessTokenExpiresAt: tokenPayload.expires_in
+      ? new Date(Date.now() + tokenPayload.expires_in * 1000)
+      : undefined,
+    grantedScopes,
+    key: cfg.tokenEncryptionKey,
+  });
+  return {
+    connected: true,
+    providerEmail: connection.providerEmail,
+    scopes: connection.grantedScopes,
+  };
+}
+
+function handleGoogleError(
+  request: { log: { error(error: unknown): void } },
+  reply: { code(statusCode: number): { send(payload: unknown): unknown } },
+  error: unknown,
+): unknown {
+  if (error instanceof IdentityDeniedError) {
+    return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+  }
+  if (error instanceof Error && error.message.endsWith("_not_configured")) {
+    return reply.code(503).send({ error: error.message });
+  }
+  request.log.error(error);
+  return reply.code(500).send({ error: "google_request_failed" });
+}
+
+async function runActionRequest(
+  request: ActionRequest,
+  reply: ActionReply,
+  resolveIdentity: (discordUserId: string) => Promise<ResolvedIdentity>,
+  action: (input: ActionRequestInput) => Promise<ActionRequestResult>,
+  input: Omit<ActionRequestInput, "employeeId">,
+  successStatus = 200,
+): Promise<unknown> {
+  const body = request.body as { discordUserId?: string } | undefined;
+  const query = request.query as { discordUserId?: string } | undefined;
+  const discordUserId = body?.discordUserId?.trim() ?? query?.discordUserId?.trim();
+  if (!discordUserId) {
+    return reply.code(400).send({ error: "invalid_action_request" });
+  }
+
+  try {
+    const identity = await resolveIdentity(discordUserId);
+    const result = await action({ ...input, employeeId: identity.id });
+    return successStatus === 200 ? reply.send(result) : reply.code(successStatus).send(result);
+  } catch (error) {
+    if (error instanceof IdentityDeniedError) {
+      return reply.code(403).send({ error: "identity_denied", reason: error.reason });
+    }
+    if (
+      error instanceof Error &&
+      ["action_capability_denied", "action_feature_disabled", "action_kill_switch_active"].includes(
+        error.message,
+      )
+    ) {
+      return reply.code(403).send({ error: error.message });
+    }
+    if (error instanceof Error && error.message.endsWith("_not_configured")) {
+      return reply.code(503).send({ error: error.message });
+    }
+    request.log.error(error);
+    return reply.code(500).send({ error: "action_request_failed" });
+  }
 }
 
 interface ReviewActionRequest {
@@ -437,11 +2013,29 @@ async function defaultCreateUpload(input: CreateUploadInput): Promise<CreateUplo
       proposedByEmployeeId: input.employeeId,
       authorityDomain: input.authorityDomain!,
       title: input.originalFilename,
-      proposedContent: input.content.toString("utf8"),
+      proposedContent: `Uploaded file: ${input.originalFilename}. Extraction is queued for governed review.`,
       sourceArtifactIds: [imported.artifact.id],
     });
     proposalId = proposal.id;
   }
+
+  if (!cfg.redisUrl) throw new Error("ingestion_queue_not_configured");
+  const queue = new RedisListQueue(cfg.redisUrl);
+  await queue.enqueue("hermes.jobs", {
+    id: `artifact-ingestion-${imported.version.id}`,
+    name: "artifact-ingestion",
+    data: {
+      artifactVersionId: imported.version.id,
+      originalObjectKey: imported.version.originalObjectKey,
+      objectKey: imported.version.originalObjectKey ?? "",
+      bucket: cfg.objectStorageBucket,
+      mimeType: input.mimeType,
+      filename: input.originalFilename,
+      retryCount: 0,
+      maxRetries: documentProcessingLimitsFromEnv(process.env).workerMaxRetries,
+      limits: documentProcessingLimitsFromEnv(process.env),
+    },
+  });
 
   return {
     uploadId: submission.id,
@@ -451,6 +2045,9 @@ async function defaultCreateUpload(input: CreateUploadInput): Promise<CreateUplo
     scope: destination.scope,
     knowledgeStatus: destination.knowledgeStatus,
     dataSensitivity: classification.sensitivity,
+    extractionStatus: imported.version.extractionStatus,
+    originalObjectKey: imported.version.originalObjectKey ?? undefined,
+    extractionError: imported.version.extractionError ?? undefined,
   };
 }
 
@@ -478,6 +2075,7 @@ async function start(): Promise<void> {
   const app = await buildServer({
     internalServiceToken: cfg.internalServiceToken,
     logger: true,
+    uploadMaxBytes: cfg.uploadMaxBytes,
   });
   await app.listen({ port: cfg.apiPort, host: cfg.apiHost });
 }

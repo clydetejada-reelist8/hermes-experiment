@@ -1,0 +1,21 @@
+[Unit]
+Description=REELIST8 Hermes Ingestion Worker
+After=docker.service reelist8-control-plane.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=hermes
+Group=hermes
+WorkingDirectory=/home/hermes/reelist8-hermes-experiment
+EnvironmentFile=/home/hermes/.hermes/reelist8-control-plane.env
+Environment=WORKER_HEARTBEAT_FILE=/run/reelist8/worker.heartbeat
+Environment=REDIS_URL=redis://127.0.0.1:6379
+ExecStart=/home/hermes/.hermes/node/bin/node /home/hermes/reelist8-hermes-experiment/apps/worker/dist/main.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target

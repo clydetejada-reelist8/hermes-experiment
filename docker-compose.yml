@@ -48,11 +48,15 @@ services:
       retries: 10
 
   api:
+    env_file:
+      - .env
     build:
       context: .
       dockerfile: Dockerfile
       args:
         APP: api
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
     container_name: hermes-api
     depends_on:
       postgres:
@@ -73,6 +77,8 @@ services:
       dockerfile: Dockerfile
       args:
         APP: discord
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
     container_name: hermes-discord
     depends_on:
       postgres:
@@ -86,11 +92,15 @@ services:
     restart: unless-stopped
 
   worker:
+    env_file:
+      - .env
     build:
       context: .
       dockerfile: Dockerfile
       args:
         APP: worker
+        GIT_COMMIT: ${GIT_COMMIT:-unknown}
+        BUILD_TIME: ${BUILD_TIME:-unknown}
     container_name: hermes-worker
     depends_on:
       postgres:

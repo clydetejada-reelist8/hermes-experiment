@@ -46,6 +46,15 @@ describe("internal auth", () => {
         employeeCode: "RL8-EMP-0001",
         displayName: "Clyde",
         discordUserId,
+        profile: {
+          company: "REELIST8",
+          roles: [],
+          teams: [],
+          projects: [],
+          manager: null,
+          capabilities: [],
+          linkedIdentities: [],
+        },
       }),
     });
 
@@ -63,6 +72,13 @@ describe("internal auth", () => {
       displayName: "Clyde",
       provider: "DISCORD",
       subjectId: "discord-1",
+      profile: {
+        company: "REELIST8",
+        roles: [],
+        teams: [],
+        projects: [],
+        manager: null,
+      },
     });
     await app.close();
   });

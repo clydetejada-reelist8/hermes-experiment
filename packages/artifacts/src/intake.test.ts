@@ -38,7 +38,7 @@ describe("ingestImportedFile", () => {
     // Verify content was stored
     const retrieved = await storage.getObject(
       storageConfig.bucket,
-      result.version.extractedTextObjectKey!,
+      result.version.originalObjectKey!,
     );
     expect(retrieved).not.toBeNull();
     expect(retrieved!.toString()).toBe(content.toString());

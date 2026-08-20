@@ -92,6 +92,14 @@ enum SyncState {
   ERROR
 }
 
+enum ExtractionStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+  UNSUPPORTED
+}
+
 enum MemoryType {
   PREFERENCE
   RESPONSIBILITY
@@ -142,7 +150,10 @@ enum Capability {
   CALENDAR_INVITE_OTHERS
   CALENDAR_UPDATE_EVENT
   CALENDAR_CANCEL_EVENT
+  REMINDERS_WRITE
   HERMES_ADMIN
+  EMPLOYEE_ENROLL
+  EMPLOYEE_PROFILE_CORRECT
 }
 
 enum SSOTProposalStatus {
@@ -231,6 +242,11 @@ model Employee {
   ssotVersionsApproved SSOTVersion[]
   ssotProposals       SSOTProposal[]
   auditEvents         AuditEvent[]
+  adminChangesRequested AdminChangeRequest[] @relation("AdminChangeRequester")
+  adminChangesTargeted AdminChangeRequest[] @relation("AdminChangeTarget")
+  enrollmentRequests   EmployeeEnrollmentRequest[]
+  profileCorrectionsRequested EmployeeProfileCorrectionRequest[] @relation("ProfileCorrectionRequester")
+  profileCorrectionsTargeted  EmployeeProfileCorrectionRequest[] @relation("ProfileCorrectionTarget")
 
   @@index([employmentStatus, stagingAllowlisted])
 }
@@ -461,7 +477,12 @@ model ArtifactVersion {
   versionNumber        Int
   sourceVersionId      String?
   contentHash          String
+  originalObjectKey    String?
   extractedTextObjectKey String?
+  extractionStatus     ExtractionStatus @default(UPLOADED)
+  extractionError      String?
+  extractionMetadata   Json?
+  extractedAt          DateTime?
   sourceModifiedAt     DateTime?
   effectiveFrom        DateTime?
   effectiveUntil       DateTime?
@@ -740,9 +761,74 @@ model Reminder {
   @@index([status, dueAt])
 }
 
+model AdminChangeRequest {
+  id                 String              @id @default(uuid())
+  requesterEmployeeId String
+  targetEmployeeId   String
+  operation          String
+  roleKey            String?
+  authorityDomain    String?
+  authorityPermission AuthorityPermission?
+  status             String              @default("AWAITING_CONFIRMATION")
+  createdAt          DateTime            @default(now())
+  confirmedAt        DateTime?
+  executedAt         DateTime?
+
+  requester Employee @relation("AdminChangeRequester", fields: [requesterEmployeeId], references: [id], onDelete: Cascade)
+  target    Employee @relation("AdminChangeTarget", fields: [targetEmployeeId], references: [id], onDelete: Cascade)
+
+  @@index([requesterEmployeeId, status])
+  @@index([targetEmployeeId, status])
+}
+
 // ---------------------------------------------------------------------------
 // Audit & feature flags
 // ---------------------------------------------------------------------------
+
+model EmployeeEnrollmentRequest {
+  id                  String   @id @default(uuid())
+  requesterEmployeeId String
+  existingEmployeeId  String?
+  mode                String   @default("ENROLL")
+  fullName            String
+  companyEmail        String
+  timezone            String
+  discordUserId       String
+  employeeCode        String
+  initialRoleKeys     String[]
+  stagingAllowlisted  Boolean  @default(false)
+  status              String   @default("AWAITING_CONFIRMATION")
+  createdAt           DateTime @default(now())
+  confirmedAt         DateTime?
+  executedAt          DateTime?
+  cancelledAt         DateTime?
+
+  requester Employee @relation(fields: [requesterEmployeeId], references: [id], onDelete: Cascade)
+
+  @@index([requesterEmployeeId, status])
+  @@index([discordUserId])
+  @@index([employeeCode])
+  @@index([companyEmail])
+}
+
+model EmployeeProfileCorrectionRequest {
+  id                  String   @id @default(uuid())
+  requesterEmployeeId String
+  targetEmployeeId    String
+  oldDisplayName      String
+  newDisplayName      String
+  status              String   @default("AWAITING_CONFIRMATION")
+  createdAt           DateTime @default(now())
+  confirmedAt         DateTime?
+  executedAt          DateTime?
+  cancelledAt         DateTime?
+
+  requester Employee @relation("ProfileCorrectionRequester", fields: [requesterEmployeeId], references: [id], onDelete: Cascade)
+  target    Employee @relation("ProfileCorrectionTarget", fields: [targetEmployeeId], references: [id], onDelete: Cascade)
+
+  @@index([requesterEmployeeId, status])
+  @@index([targetEmployeeId, status])
+}
 
 model AuditEvent {
   id            String   @id @default(uuid())

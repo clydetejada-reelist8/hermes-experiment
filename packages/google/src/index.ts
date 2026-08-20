@@ -1,4 +1,17 @@
 export { encryptToken, decryptToken } from "./crypto.js";
+export { buildGoogleAuthorizationUrl } from "./oauth.js";
+export type { GoogleAuthorizationUrlInput } from "./oauth.js";
+export {
+  GoogleGmailProvider,
+  GoogleCalendarProvider,
+  GoogleOAuthAccessTokenSource,
+} from "./providers.js";
+export type {
+  GoogleAccessTokenSource,
+  GmailDraftParameters,
+  CalendarEventParameters,
+  GoogleFetchOptions,
+} from "./providers.js";
 export {
   createOAuthState,
   consumeOAuthState,
