@@ -9,6 +9,9 @@ const AUTHORITY_DOMAIN_ALIASES: Record<string, string> = {
   "company ssot": "company",
   "company leadership": "company",
   "company leadership ssot": "company",
+  "employee-directory": "company",
+  "employee directory": "company",
+  "company-directory": "company",
 };
 
 export function normalizeAuthorityDomain(value: string): string {

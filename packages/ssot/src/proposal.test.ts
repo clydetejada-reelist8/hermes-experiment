@@ -22,6 +22,7 @@ describe("authority domain normalization", () => {
   it("maps company-facing labels to the canonical company key", () => {
     expect(normalizeAuthorityDomain("company SSOT")).toBe("company");
     expect(normalizeAuthorityDomain("Company leadership")).toBe("company");
+    expect(normalizeAuthorityDomain("employee-directory")).toBe("company");
   });
 
   it("preserves known domain keys", () => {
