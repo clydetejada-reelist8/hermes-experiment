@@ -1,21 +1,14 @@
 import { db } from "@hermes/db";
-import type { Capability } from "@hermes/contracts";
 import { audit } from "@hermes/audit";
 import {
   ADMIN_MANAGEABLE_ROLES,
+  getEmployeeCapabilities,
+  getStagingRoleCapabilities,
   STAGING_ADMIN_ROLE,
   STAGING_APPROVER_ROLE,
   STAGING_READER_ROLE,
   STAGING_REVIEW_ROLE,
-  getEmployeeCapabilities,
 } from "./employee-access.js";
-
-const ROLE_CAPABILITIES: Record<string, Capability[]> = {
-  [STAGING_READER_ROLE]: ["KNOWLEDGE_READ_COMPANY"],
-  [STAGING_REVIEW_ROLE]: ["SSOT_REVIEW"],
-  [STAGING_APPROVER_ROLE]: ["SSOT_APPROVE"],
-  [STAGING_ADMIN_ROLE]: ["HERMES_ADMIN", "EMPLOYEE_ENROLL"],
-};
 
 const ROLE_NAMES: Record<string, string> = {
   [STAGING_READER_ROLE]: "Staging Company Reader",
@@ -304,7 +297,7 @@ export async function executeEmployeeEnrollment(requestId: string, requesterEmpl
         create: { key: roleKey, name: ROLE_NAMES[roleKey] ?? roleKey },
         update: {},
       });
-      const capabilities = ROLE_CAPABILITIES[roleKey];
+      const capabilities = getStagingRoleCapabilities(roleKey);
       if (!capabilities) throw new Error("invalid_initial_role");
       for (const capability of capabilities) {
         await tx.roleCapability.upsert({

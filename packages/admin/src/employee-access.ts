@@ -7,12 +7,34 @@ export const STAGING_ADMIN_ROLE = "staging-hermes-admin";
 export const STAGING_REVIEW_ROLE = "staging-ssot-reviewer";
 export const STAGING_APPROVER_ROLE = "staging-ssot-approver";
 export const STAGING_READER_ROLE = "staging-company-reader";
+export const STAGING_PROFILE_CORRECTOR_ROLE = "staging-employee-profile-admin";
+
+export const STAGING_ROLE_CAPABILITIES: Record<string, Capability[]> = {
+  [STAGING_READER_ROLE]: ["KNOWLEDGE_READ_COMPANY"],
+  [STAGING_REVIEW_ROLE]: ["SSOT_REVIEW", "SSOT_PROPOSE"],
+  [STAGING_APPROVER_ROLE]: ["SSOT_APPROVE", "SSOT_PROPOSE"],
+  [STAGING_ADMIN_ROLE]: ["HERMES_ADMIN", "EMPLOYEE_ENROLL"],
+  [STAGING_PROFILE_CORRECTOR_ROLE]: ["EMPLOYEE_PROFILE_CORRECT"],
+};
+
+export const STAGING_ROLE_NAMES: Record<string, string> = {
+  [STAGING_READER_ROLE]: "Staging Company Reader",
+  [STAGING_REVIEW_ROLE]: "Staging SSOT Reviewer",
+  [STAGING_APPROVER_ROLE]: "Staging SSOT Approver",
+  [STAGING_ADMIN_ROLE]: "Staging Hermes Administrator",
+  [STAGING_PROFILE_CORRECTOR_ROLE]: "Staging Employee Profile Administrator",
+};
+
+export function getStagingRoleCapabilities(roleKey: string): Capability[] | undefined {
+  return STAGING_ROLE_CAPABILITIES[roleKey];
+}
 
 export const ADMIN_MANAGEABLE_ROLES = new Set([
-  STAGING_READER_ROLE,
   STAGING_REVIEW_ROLE,
   STAGING_APPROVER_ROLE,
+  STAGING_READER_ROLE,
   STAGING_ADMIN_ROLE,
+  STAGING_PROFILE_CORRECTOR_ROLE,
 ]);
 
 export function assertStagingBootstrapEnvironment(input: {
@@ -63,6 +85,7 @@ function assertKnownCapability(capability: string): asserts capability is Capabi
     "REMINDERS_WRITE",
     "HERMES_ADMIN",
     "EMPLOYEE_ENROLL",
+    "EMPLOYEE_PROFILE_CORRECT",
   ];
   if (!known.includes(capability as Capability))
     throw new Error(`unknown_capability:${capability}`);
@@ -83,6 +106,12 @@ async function upsertRole(key: string, name: string, capabilities: string[]) {
     });
   }
   return role;
+}
+
+async function upsertStagingRole(roleKey: string) {
+  const capabilities = getStagingRoleCapabilities(roleKey);
+  if (!capabilities) throw new Error("invalid_staging_role");
+  return upsertRole(roleKey, STAGING_ROLE_NAMES[roleKey] ?? roleKey, capabilities);
 }
 
 async function attachRole(employeeId: string, roleId: string) {
@@ -117,18 +146,17 @@ export async function bootstrapStagingOwner(input: StagingOwnerBootstrapInput) {
   if (!identity) throw new Error("discord_identity_not_found");
   if (identity.employeeId !== employee.id) throw new Error("discord_identity_employee_mismatch");
 
-  const [adminRole, reviewRole, approverRole] = await Promise.all([
-    upsertRole(STAGING_ADMIN_ROLE, "Staging Hermes Administrator", [
-      "HERMES_ADMIN",
-      "EMPLOYEE_ENROLL",
-    ]),
-    upsertRole(STAGING_REVIEW_ROLE, "Staging SSOT Reviewer", ["SSOT_REVIEW"]),
-    upsertRole(STAGING_APPROVER_ROLE, "Staging SSOT Approver", ["SSOT_APPROVE"]),
+  const [adminRole, reviewRole, approverRole, profileRole] = await Promise.all([
+    upsertStagingRole(STAGING_ADMIN_ROLE),
+    upsertStagingRole(STAGING_REVIEW_ROLE),
+    upsertStagingRole(STAGING_APPROVER_ROLE),
+    upsertStagingRole(STAGING_PROFILE_CORRECTOR_ROLE),
   ]);
   await Promise.all([
     attachRole(employee.id, adminRole.id),
     attachRole(employee.id, reviewRole.id),
     attachRole(employee.id, approverRole.id),
+    attachRole(employee.id, profileRole.id),
   ]);
 
   await db.authorityDomain.upsert({
