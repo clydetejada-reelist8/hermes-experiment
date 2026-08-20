@@ -338,6 +338,30 @@ def reelist8_prepare_employee_identity_link(discord_user_id: str, employee_code:
     })
 
 
+@mcp.tool(description="Confirm a prepared employee identity link. Uses the dedicated enrollment confirmation workflow.")
+def reelist8_confirm_employee_identity_link(discord_user_id: str, enrollment_id: str) -> dict[str, Any]:
+    return _post(
+        f"/v1/admin/enrollments/{urllib.parse.quote(enrollment_id.strip(), safe='')}/confirm",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
+@mcp.tool(description="Get the status of a prepared employee identity link.")
+def reelist8_get_employee_identity_link(discord_user_id: str, enrollment_id: str) -> dict[str, Any]:
+    return _get(
+        f"/v1/admin/enrollments/{urllib.parse.quote(enrollment_id.strip(), safe='')}",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
+@mcp.tool(description="Execute a confirmed employee identity link. Uses the dedicated enrollment execution workflow.")
+def reelist8_execute_employee_identity_link(discord_user_id: str, enrollment_id: str) -> dict[str, Any]:
+    return _post(
+        f"/v1/admin/enrollments/{urllib.parse.quote(enrollment_id.strip(), safe='')}/execute",
+        {"discordUserId": discord_user_id.strip()},
+    )
+
+
 @mcp.tool(description="Prepare a governed staging employee enrollment. Requires an authorized requester, approved RL8 employee code, verified fields, and explicit initial roles; writes nothing.")
 def reelist8_prepare_employee_enrollment(
     discord_user_id: str,
